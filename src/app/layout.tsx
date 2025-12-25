@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { Toaster } from "sonner"; // Importamos o componente de notificação
+import { FinancialProvider } from "@/context/FinancialContext";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -19,9 +20,10 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className={inter.className}>
-        {children}
-        {/* Adicionamos o Toaster aqui. richColors deixa verde para sucesso e vermelho para erro */}
-        <Toaster richColors position="top-center" />
+        <FinancialProvider>
+          {children}
+          <Toaster richColors position="top-center" visibleToasts={1} />
+        </FinancialProvider>
       </body>
     </html>
   );

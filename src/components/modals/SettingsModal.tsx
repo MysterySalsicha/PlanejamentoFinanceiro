@@ -16,10 +16,11 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal = ({ onClose }: SettingsModalProps) => {
-  const { state, updateSettings, addCategory, deleteCategory } = useFinancials();
+  const { state, updateSettings, addCategory, removeCategory } = useFinancials();
   
   const [settings, setSettings] = useState<UserSettings>(state.settings);
   const [newCategory, setNewCategory] = useState({ name: '', type: 'expense' as 'income' | 'expense' });
+  const [newCategoryColor, setNewCategoryColor] = useState('#a8a29e');
 
   const handleSave = () => {
     updateSettings(settings);
@@ -29,7 +30,7 @@ export const SettingsModal = ({ onClose }: SettingsModalProps) => {
 
   const handleAddCategory = () => {
     if (newCategory.name.trim()) {
-      addCategory(newCategory.name, newCategory.type);
+      addCategory(newCategory.name, newCategory.type, newCategoryColor);
       setNewCategory({ name: '', type: 'expense' });
       toast.success(`Categoria "${newCategory.name}" adicionada.`);
     }
@@ -82,10 +83,31 @@ export const SettingsModal = ({ onClose }: SettingsModalProps) => {
             )}
           </div>
 
+          {/* Seção de Aparência */}
+          <div className="space-y-4 p-4 border rounded-lg">
+            <h3 className="font-semibold text-lg">Aparência</h3>
+            <div>
+              <Label>Tema do Aplicativo</Label>
+              <select
+                className="w-full p-2 border rounded-md"
+                value={settings.theme || 'system'}
+                onChange={(e) => setSettings(s => ({ ...s, theme: e.target.value as 'light' | 'dark' | 'system' }))}
+              >
+                <option value="light">Claro</option>
+                <option value="dark">Escuro</option>
+                <option value="system">Padrão do Sistema</option>
+              </select>
+            </div>
+          </div>
+
           {/* Seção de Categorias */}
           <div className="space-y-4 p-4 border rounded-lg">
             <h3 className="font-semibold text-lg">Gerenciar Categorias</h3>
             <div className="flex gap-2">
+                <label>
+                    <div className="w-10 h-10 p-1 border rounded-md cursor-pointer" style={{ backgroundColor: newCategoryColor }}></div>
+                    <Input type="color" value={newCategoryColor} onChange={e => setNewCategoryColor(e.target.value)} className="w-0 h-0 opacity-0 absolute"/>
+                </label>
               <Input 
                 placeholder="Nome da nova categoria" 
                 value={newCategory.name}
@@ -107,7 +129,7 @@ export const SettingsModal = ({ onClose }: SettingsModalProps) => {
                     {state.categories.filter(c => c.type === 'income').map(cat => (
                         <span key={cat.id} className="flex items-center gap-2 bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
                             {cat.name}
-                            <button onClick={() => deleteCategory(cat.id)}><X className="h-3 w-3" /></button>
+                            <button onClick={() => removeCategory(cat.id)}><X className="h-3 w-3" /></button>
                         </span>
                     ))}
                 </div>
@@ -118,7 +140,7 @@ export const SettingsModal = ({ onClose }: SettingsModalProps) => {
                     {state.categories.filter(c => c.type === 'expense').map(cat => (
                         <span key={cat.id} className="flex items-center gap-2 bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
                             {cat.name}
-                            <button onClick={() => deleteCategory(cat.id)}><X className="h-3 w-3" /></button>
+                            <button onClick={() => removeCategory(cat.id)}><X className="h-3 w-3" /></button>
                         </span>
                     ))}
                 </div>

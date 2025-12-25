@@ -1,11 +1,9 @@
+'use client';
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { FinancialState, Transaction, Debt, ImportedTransaction, UserSettings } from '@/types';
-
-export const MONTHS_FULL = [
-  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-];
+import { MONTHS_FULL } from '@/lib/constants';
 
 const initialState: FinancialState = {
   cycles: [
@@ -22,7 +20,7 @@ const initialState: FinancialState = {
     { id: 'cat7', name: 'Educação', type: 'expense', color: '#14b8a6' },
     { id: 'cat8', name: 'Outros', type: 'expense', color: '#64748b' },
   ],
-  settings: { salaryDay: 5, hasAdvance: true, advanceDay: 20 },
+  settings: { salaryDay: 5, hasAdvance: true, advanceDay: 20, theme: 'system' },
   categoryMappings: {} // Inicializa vazio
 };
 
@@ -36,11 +34,13 @@ interface FinancialContextType {
   updateTransaction: (id: string, t: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
   addDebt: (d: Omit<Debt, 'id'>) => void;
+  addProjectedDebt: (d: Omit<Debt, 'id'>) => void;
   addBatchedTransactions: (t: ImportedTransaction[]) => void;
   updateDebt: (id: string, d: Partial<Debt>) => void;
   deleteDebt: (id: string) => void;
+  payPartialDebt: (debtId: string, amountToPay: number) => void;
   switchCycle: (id: string) => void;
-  learnCategory: (sender: string, category: string) => void; // NOVO
+  learnCategory: (sender: string, category: string, amount: number, isFixed: boolean) => void; 
   clearDatabase: (range: 'all' | '2months' | '6months') => void;
 }
 
@@ -80,9 +80,13 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   const removeCategory = (id: string) => setState(prev => ({ ...prev, categories: prev.categories.filter(c => c.id !== id) }));
 
   // --- Função de Aprendizado ---
-  const learnCategory = (sender: string, category: string) => {
+  const learnCategory = (sender: string, category: string, amount: number, isFixed: boolean) => {
       if (!sender || !category) return;
-      const key = sender.toLowerCase().trim();
+      // Para despesas fixas, aprendemos apenas o remetente. Para variáveis, a combinação.
+      const key = isFixed 
+          ? sender.toLowerCase().trim()
+          : `${sender.toLowerCase().trim()}-${amount.toFixed(2)}`;
+
       setState(prev => ({
           ...prev,
           categoryMappings: { ...prev.categoryMappings, [key]: category }
@@ -107,6 +111,22 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
     setState(prev => ({
       ...prev, cycles: prev.cycles.map(c => c.type === d.cycle ? { ...c, debts: [...c.debts, { ...d, id: uuidv4() }] } : c)
     }));
+  };
+  
+  const addProjectedDebt = (d: Omit<Debt, 'id'>) => {
+      const { salaryDay, advanceDay, hasAdvance } = state.settings;
+      const debtDate = new Date(d.purchaseDate!);
+      const debtDay = debtDate.getDate();
+
+      let targetCycle: 'day_05' | 'day_20' = 'day_05';
+      if(hasAdvance) {
+          const distToSalary = Math.abs(debtDay - salaryDay);
+          const distToAdvance = Math.abs(debtDay - advanceDay);
+          if (distToAdvance < distToSalary) targetCycle = 'day_20';
+      }
+
+      const debtWithCycle = { ...d, cycle: targetCycle };
+      addDebt(debtWithCycle);
   };
 
   const updateDebt = (id: string, updated: Partial<Debt>) => {
@@ -134,6 +154,56 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
 
   const deleteDebt = (id: string) => {
     setState(prev => ({ ...prev, cycles: prev.cycles.map(c => ({ ...c, debts: c.debts.filter(d => d.id !== id) })) }));
+  };
+
+  const payPartialDebt = (debtId: string, amountToPay: number) => {
+    setState(prev => {
+      let debtToSplit: Debt | null = null;
+      let originalCycleType: 'day_05' | 'day_20' | null = null;
+
+      for (const cycle of prev.cycles) {
+        const found = cycle.debts.find(d => d.id === debtId);
+        if (found) {
+          debtToSplit = found;
+          originalCycleType = cycle.type;
+          break;
+        }
+      }
+
+      if (!debtToSplit || !originalCycleType) return prev;
+
+      const remainingAmount = debtToSplit.installmentAmount - amountToPay;
+      if (remainingAmount <= 0) { // Se pagou tudo ou mais, apenas deleta a original
+        return { ...prev, cycles: prev.cycles.map(c => ({ ...c, debts: c.debts.filter(d => d.id !== debtId) }))};
+      }
+      
+      const newCycles = prev.cycles.map(c => {
+        if (c.type === originalCycleType) {
+            // Remove a dívida original e adiciona as duas novas (paga e restante)
+            const otherDebts = c.debts.filter(d => d.id !== debtId);
+            const paidPart: Debt = {
+                ...debtToSplit!,
+                id: uuidv4(),
+                name: `${debtToSplit!.name} (Parcial Paga)`,
+                installmentAmount: amountToPay,
+                paidAmount: amountToPay,
+                totalAmount: debtToSplit!.installmentAmount, // Mantém o total original para referência
+            };
+            const remainingPart: Debt = {
+                ...debtToSplit!,
+                id: uuidv4(),
+                name: `Restante - ${debtToSplit!.name}`,
+                installmentAmount: remainingAmount,
+                paidAmount: 0,
+                totalAmount: debtToSplit!.installmentAmount, // Mantém o total original
+            };
+            return { ...c, debts: [...otherDebts, paidPart, remainingPart] };
+        }
+        return c;
+      });
+
+      return { ...prev, cycles: newCycles };
+    });
   };
 
   const switchCycle = (id: string) => {
@@ -185,7 +255,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
 
             if (t.type === 'income') {
                 newCycles[idx].transactions.push({
-                    id: uuidv4(), description: t.description, amount: Math.abs(t.amount),
+                    id: uuidv4(), description: t.sender || t.description, amount: Math.abs(t.amount),
                     type: 'income', category: t.category || 'Salário', date: t.date, isFixed: false, cycle: targetType
                 });
             } else {
@@ -206,12 +276,12 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
-  const clearDatabase = (range: 'all') => {
+  const clearDatabase = (range: 'all' | '2months' | '6months') => {
       if (range === 'all') setState({ ...initialState, settings: state.settings, categories: state.categories, categoryMappings: state.categoryMappings });
   };
 
   return (
-    <FinancialContext.Provider value={{ state, updateSettings, addCategory, updateCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, addBatchedTransactions, updateDebt, deleteDebt, switchCycle, learnCategory, clearDatabase }}>
+    <FinancialContext.Provider value={{ state, updateSettings, addCategory, updateCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, addProjectedDebt, addBatchedTransactions, updateDebt, deleteDebt, payPartialDebt, switchCycle, learnCategory, clearDatabase }}>
       {children}
     </FinancialContext.Provider>
   );

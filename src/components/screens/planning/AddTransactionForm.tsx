@@ -50,7 +50,7 @@ export const AddTransactionForm = () => {
         const todayStr = today.toLocaleDateString('pt-BR');
 
         if (formType === 'income') {
-            addTransaction({ description: name, amount: numAmount, type: 'income', category, date: todayStr, isFixed: debtType === 'fixed' }, cycle);
+            addTransaction({ description: name, amount: numAmount, type: 'income', category, date: todayStr, isFixed: debtType === 'fixed', cycle });
             toast.success(`Renda "${name}" adicionada!`);
         } else {
             const dueDay = parseInt(dueDate);
@@ -64,12 +64,12 @@ export const AddTransactionForm = () => {
                 totalAmount: totalValue || numAmount,
                 dueDate: fullDueDate,
                 purchaseDate: todayStr,
-                firstBillDate: debtType === 'installment' ? firstBillDate : undefined,
                 currentInstallment: 1,
                 totalInstallments: debtType === 'installment' && installments ? parseInt(installments) : 1,
                 isFixed: debtType === 'fixed',
                 category,
-            }, cycle);
+                cycle
+            });
             toast.success(`Dívida "${name}" adicionada!`);
         }
         resetForm();

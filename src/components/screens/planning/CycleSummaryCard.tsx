@@ -47,14 +47,14 @@ export const CycleSummaryCard = ({ title, incomes, debts, cycleColor }: CycleSum
                         <ArrowUpCircle className={color.icon} />
                         <span className="font-medium">Entradas</span>
                     </div>
-                    <span className="font-bold text-lg">{formatCurrencyBRL(totals.totalIncome)}</span>
+                    <span className="font-bold text-base md:text-lg">{formatCurrencyBRL(totals.totalIncome)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <ArrowDownCircle className={color.icon} />
                         <span className="font-medium">Saídas</span>
                     </div>
-                    <span className="font-bold text-lg text-red-300">{formatCurrencyBRL(totals.totalDebt > 0 ? totals.totalDebt * -1 : 0)}</span>
+                    <span className="font-bold text-base md:text-lg text-red-300">{formatCurrencyBRL(totals.totalDebt > 0 ? totals.totalDebt * -1 : 0)}</span>
                 </div>
                 <div className="border-t border-white/20 my-2"></div>
                 <div className="flex items-center justify-between">
@@ -62,7 +62,7 @@ export const CycleSummaryCard = ({ title, incomes, debts, cycleColor }: CycleSum
                         <Banknote className={color.icon} />
                         <span className="font-medium">Saldo Previsto</span>
                     </div>
-                    <span className={`font-bold text-2xl ${totals.balance < 0 ? 'text-red-300' : ''}`}>{formatCurrencyBRL(totals.balance)}</span>
+                    <span className={`font-bold text-xl md:text-2xl ${totals.balance < 0 ? 'text-red-300' : ''}`}>{formatCurrencyBRL(totals.balance)}</span>
                 </div>
             </CardContent>
         </Card>

@@ -28,6 +28,29 @@ export function formatCurrencyBRL(amount: number): string {
 }
 
 /**
+ * Converte uma string de moeda formatada (ex: "R$ 1.234,56") para um número.
+ * @param value A string de moeda a ser convertida.
+ * @returns O valor numérico.
+ */
+export function parseMoney(value: string | number): number {
+  if (typeof value === 'number') return value;
+  const cleaned = value.replace(/[R$\s.]/g, '').replace(',', '.');
+  return parseFloat(cleaned) || 0;
+}
+
+/**
+ * Formata um número para uma string de moeda (ex: "1.234,56").
+ * Útil para inputs, sem o símbolo "R$".
+ * @param value O valor numérico a ser formatado.
+ * @returns Uma string representando o valor formatado.
+ */
+export function formatMoney(value: string | number): string {
+  if (value === null || value === undefined || value === '') return '';
+  const num = typeof value === 'string' ? parseMoney(value) : value;
+  return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
  * Formata uma string de data para um formato legível em português do Brasil.
  * @param dateString A string da data a ser formatada (preferencialmente em formato ISO 8601).
  * @param dateFormat O formato desejado para a data (padrão: 'dd/MM/yyyy').
@@ -42,3 +65,4 @@ export function formatDate(dateString: string, dateFormat = 'dd/MM/yyyy'): strin
     return 'Data Inválida';
   }
 }
+

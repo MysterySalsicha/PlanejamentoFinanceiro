@@ -8,16 +8,18 @@ import { Input } from '@/components/ui/input';
 import { formatCurrencyBRL } from '@/lib/utils';
 import { Debt, Transaction, Category } from '../../../types';
 import { DonutChart } from './DonutChart';
-import { ChevronsUpDown, PlusCircle, XCircle } from 'lucide-react';
+import { EditDebtModal } from './EditDebtModal';
+import { ChevronsUpDown, PlusCircle, XCircle, Edit } from 'lucide-react';
 import { useFinancials } from '../../../context/FinancialContext';
 import { toast } from 'sonner';
 
 // --- Sub-component for Quick Add ---
 const QuickAddForm = ({ month, year }: { month: string, year: number }) => {
-    const { addProjectedDebt, categories } = useFinancials();
+    const { addProjectedDebt, state } = useFinancials();
     const [name, setName] = useState('');
     const [amount, setAmount] = useState('');
     const [day, setDay] = useState('');
+    const [cycle, setCycle] = useState<'day_05' | 'day_20'>('day_05');
 
     const handleQuickAdd = () => {
         const numAmount = parseFloat(amount);
@@ -27,19 +29,20 @@ const QuickAddForm = ({ month, year }: { month: string, year: number }) => {
             return toast.error("Preencha todos os campos para a previsão.");
         }
         
-        const monthIndex = MONTHS_FULL.findIndex(m => m === month);
-        const fullDate = `${String(numDay).padStart(2,'0')}/${String(monthIndex + 1).padStart(2,'0')}/${year}`;
+        const monthIndex = new Date(Date.parse(month +" 1, 2024")).getMonth();
+        const fullDate = new Date(year, monthIndex, numDay);
 
         addProjectedDebt({
             name,
             installmentAmount: numAmount,
             totalAmount: numAmount,
-            dueDate: fullDate,
-            purchaseDate: fullDate, // Assume purchase and due are same for one-off
+            dueDate: String(numDay).padStart(2, '0'),
+            purchaseDate: fullDate.toISOString(),
             currentInstallment: 1,
             totalInstallments: 1,
             isFixed: false,
-            category: 'cat-expense-99', // Default "Outros"
+            category: state.categories.find(c => c.name === 'Outros')?.id || 'cat-expense-99',
+            cycle,
         });
 
         toast.success(`Previsão "${name}" adicionada para ${month}.`);
@@ -49,12 +52,16 @@ const QuickAddForm = ({ month, year }: { month: string, year: number }) => {
     };
 
     return (
-         <div className="border-t pt-4">
+         <div className="border-t pt-4 space-y-2">
             <p className="text-sm font-medium mb-2">Adicionar Previsão Avulsa</p>
             <div className="flex gap-2 items-center">
                 <Input placeholder="Ex: IPVA" value={name} onChange={e => setName(e.target.value)} className="flex-grow"/>
                 <Input type="number" placeholder="Valor" value={amount} onChange={e => setAmount(e.target.value)} className="w-28"/>
                 <Input type="number" placeholder="Dia" value={day} onChange={e => setDay(e.target.value)} className="w-20"/>
+                 <select value={cycle} onChange={e => setCycle(e.target.value as any)} className="w-28 p-2 border rounded-md text-xs">
+                    <option value="day_05">Ciclo Salário</option>
+                    <option value="day_20">Ciclo Vale</option>
+                </select>
                 <Button size="icon" onClick={handleQuickAdd}><PlusCircle className="h-4 w-4"/></Button>
             </div>
         </div>
@@ -73,12 +80,15 @@ interface ProjectionMonth {
 
 interface ProjectionCardProps {
     projection: ProjectionMonth;
-    categories: Category[];
 }
 
-export const ProjectionCard = ({ projection, categories }: ProjectionCardProps) => {
+export const ProjectionCard = ({ projection }: ProjectionCardProps) => {
+    const { state, updateDebt } = useFinancials();
+    const { categories } = state;
     const [isExpanded, setIsExpanded] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+    const [editingDebt, setEditingDebt] = useState<Debt | null>(null);
+    
     const { month, year, incomes, debts, finalBalance } = projection;
 
     const totalIncome = useMemo(() => incomes.reduce((acc, t) => acc + t.amount, 0), [incomes]);
@@ -91,58 +101,83 @@ export const ProjectionCard = ({ projection, categories }: ProjectionCardProps) 
         return debts.filter(d => getCategoryName(d.category!) === selectedCategory);
     }, [selectedCategory, debts, categories]);
 
-    return (
-        <Card className={`transition-all duration-300 shadow-lg ${isExpanded ? 'col-span-1 md:col-span-2 lg:col-span-3 bg-slate-50' : ''}`}>
-            <CardHeader 
-                className="cursor-pointer hover:bg-slate-100"
-                onClick={() => setIsExpanded(!isExpanded)}
-            >
-                <CardTitle className="flex justify-between items-center">
-                    <span className="text-purple-700 font-bold">{month}/{year}</span>
-                    <ChevronsUpDown className="h-5 w-5 text-purple-700" />
-                </CardTitle>
-            </CardHeader>
-            
-            {!isExpanded && (
-                <CardContent className="text-center">
-                    <p className="text-sm text-slate-500">Saldo Final Previsto</p>
-                    <p className={`text-4xl font-bold ${finalBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatCurrencyBRL(finalBalance)}
-                    </p>
-                    <div className="flex justify-between text-xs text-slate-500 mt-4">
-                        <span>Entradas: {formatCurrencyBRL(totalIncome)}</span>
-                        <span>Saídas: {formatCurrencyBRL(totalDebt)}</span>
-                    </div>
-                </CardContent>
-            )}
+    const handleSaveDebt = (updatedFields: Partial<Debt>) => {
+        if (!editingDebt) return;
+        updateDebt(editingDebt.id, updatedFields);
+        toast.success(`Dívida "${editingDebt.name}" atualizada.`);
+    };
 
-            {isExpanded && (
-                <CardContent className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-4">
-                            <h3 className="font-semibold text-center">Distribuição de Despesas</h3>
-                            <DonutChart debts={debts} categories={categories} onSliceClick={setSelectedCategory} />
-                        </div>
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center">
-                                <h3 className="font-semibold">Itens do Mês</h3>
-                                {selectedCategory && (
-                                    <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="text-xs">
-                                        <XCircle className="mr-1 h-4 w-4"/> Limpar Filtro ({selectedCategory})
-                                    </Button>
-                                )}
-                            </div>
-                            <div className="max-h-60 overflow-y-auto space-y-2 p-2 bg-white rounded border">
-                                {incomes.map(i => <div key={i.id} className="flex justify-between text-sm"><span>{i.description}</span><span className="font-medium text-green-600">{formatCurrencyBRL(i.amount)}</span></div>)}
-                                <hr/>
-                                {filteredDebts.map(d => <div key={d.id} className="flex justify-between text-sm"><span>{d.name}</span><span className="font-medium text-red-600">{formatCurrencyBRL(d.installmentAmount * -1)}</span></div>)}
-                                {filteredDebts.length === 0 && <p className="text-slate-500 text-center text-sm">Nenhuma despesa para a categoria selecionada.</p>}
-                            </div>
-                        </div>
-                    </div>
-                    <QuickAddForm month={month} year={year} />
-                </CardContent>
+    return (
+        <>
+            {editingDebt && (
+                <EditDebtModal
+                    debt={editingDebt}
+                    categories={categories}
+                    onClose={() => setEditingDebt(null)}
+                    onSave={handleSaveDebt}
+                />
             )}
-        </Card>
+            <Card className={`transition-all duration-300 shadow-lg ${isExpanded ? 'col-span-1 md:col-span-2 lg:col-span-3 bg-slate-50' : ''}`}>
+                <CardHeader 
+                    className="cursor-pointer hover:bg-slate-100"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                >
+                    <CardTitle className="flex justify-between items-center">
+                        <span className="text-purple-700 font-bold">{month}/{year}</span>
+                        <ChevronsUpDown className="h-5 w-5 text-purple-700" />
+                    </CardTitle>
+                </CardHeader>
+                
+                {!isExpanded && (
+                    <CardContent className="text-center">
+                        <p className="text-sm text-slate-500">Saldo Final Previsto</p>
+                        <p className={`text-2xl sm:text-4xl font-bold ${finalBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                {formatCurrencyBRL(finalBalance)}
+                                            </p>                        <div className="flex justify-between text-xs text-slate-500 mt-4">
+                            <span>Entradas: {formatCurrencyBRL(totalIncome)}</span>
+                            <span>Saídas: {formatCurrencyBRL(totalDebt)}</span>
+                        </div>
+                    </CardContent>
+                )}
+
+                {isExpanded && (
+                    <CardContent className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-4">
+                                <h3 className="font-semibold text-center">Distribuição de Despesas</h3>
+                                <DonutChart debts={debts} categories={categories} onSliceClick={setSelectedCategory} />
+                            </div>
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h3 className="font-semibold">Itens do Mês</h3>
+                                    {selectedCategory && (
+                                        <Button variant="ghost" size="sm" onClick={() => setSelectedCategory(null)} className="text-xs">
+                                            <XCircle className="mr-1 h-4 w-4"/> Limpar Filtro ({selectedCategory})
+                                        </Button>
+                                    )}
+                                </div>
+                                <div className="max-h-60 overflow-y-auto space-y-2 p-2 bg-white rounded border">
+                                    {incomes.map(i => <div key={i.id} className="flex justify-between text-sm"><span>{i.description}</span><span className="font-medium text-green-600">{formatCurrencyBRL(i.amount)}</span></div>)}
+                                    <hr/>
+                                    {filteredDebts.map(d => (
+                                        <div key={d.id} className="flex justify-between items-center text-sm group">
+                                            <span>{d.name}</span>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium text-red-600">{formatCurrencyBRL(d.installmentAmount * -1)}</span>
+                                                <Button size="icon" variant="ghost" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => setEditingDebt(d)}>
+                                                    <Edit className="h-4 w-4 text-slate-500"/>
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {filteredDebts.length === 0 && <p className="text-slate-500 text-center text-sm">Nenhuma despesa para a categoria selecionada.</p>}
+                                </div>
+                            </div>
+                        </div>
+                        <QuickAddForm month={month} year={year} />
+                    </CardContent>
+                )}
+            </Card>
+        </>
     );
 };

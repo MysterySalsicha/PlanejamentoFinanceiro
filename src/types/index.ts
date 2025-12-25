@@ -16,6 +16,7 @@ export interface Debt {
     name: string;
     totalAmount: number;
     installmentAmount: number;
+    paidAmount?: number;
     dueDate: string;
     purchaseDate?: string;
     currentInstallment: number;
@@ -45,6 +46,7 @@ export interface UserSettings {
     salaryDay: number;
     hasAdvance: boolean;
     advanceDay: number;
+    theme?: 'light' | 'dark' | 'system';
 }
   
 export interface FinancialState {
@@ -63,4 +65,5 @@ export interface ImportedTransaction {
     type: 'income' | 'expense';
     category: string;
     installments?: { current: number, total: number };
+    isDuplicate?: boolean;
 }

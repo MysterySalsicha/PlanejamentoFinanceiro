@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useFinancials } from '@/context/FinancialContext';
 import { ImportedTransaction } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { formatCurrencyBRL } from '@/lib/utils';
 import { toast } from 'sonner';
-import { Upload, Loader2, Trash2, Search, ArrowRight, X, Info, Eraser, Bug, CheckCircle, Copy, MessageSquarePlus } from 'lucide-react';
+import { Upload, Loader2, Trash2, Search, ArrowRight, X, Info, Eraser, Bug, CheckCircle, Copy, MessageSquarePlus, AlertTriangle } from 'lucide-react';
 
 const MONTH_MAP: Record<string, string> = {'JAN':'01','FEV':'02','MAR':'03','ABR':'04','MAI':'05','JUN':'06','JUL':'07','AGO':'08','SET':'09','OUT':'10','NOV':'11','DEZ':'12','JANEIRO':'01','FEVEREIRO':'02','MARÇO':'03','ABRIL':'04','MAIO':'05','JUNHO':'06','JULHO':'07','AGOSTO':'08','SETEMBRO':'09','OUTUBRO':'10','NOVEMBRO':'11','DEZEMBRO':'12'};
 
@@ -32,9 +32,33 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
   const [logs, setLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [showBankInfo, setShowBankInfo] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(true);
 
   const addLog = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
   const copyLogs = () => { navigator.clipboard.writeText(logs.join('\n')); toast.success("Logs copiados!"); };
+
+  // --- LÓGICA DE DETECÇÃO DE DUPLICATAS ---
+  const createTransactionFingerprint = (trans: { date: string, amount: number, sender?: string, description?: string }): string => {
+    const datePart = trans.date.split('/').slice(0, 2).join('/'); // Dia e mês
+    const amountPart = Math.abs(trans.amount).toFixed(2);
+    const descPart = (trans.sender || trans.description || '').toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
+    return `${datePart}-${amountPart}-${descPart}`;
+  };
+
+  const existingTxFingerprints = useMemo(() => {
+    const allTransactions = [...state.cycles[0].transactions, ...state.cycles[1].transactions];
+    const allDebts = [...state.cycles[0].debts, ...state.cycles[1].debts];
+    const fingerprints = new Set<string>();
+    allTransactions.forEach(t => fingerprints.add(createTransactionFingerprint({ date: t.date, amount: t.amount, description: t.description })));
+    allDebts.forEach(d => fingerprints.add(createTransactionFingerprint({ date: d.purchaseDate || d.dueDate, amount: d.installmentAmount, sender: d.name })));
+    addLog(`${fingerprints.size} transações existentes carregadas para verificação de duplicatas.`);
+    return fingerprints;
+  }, [state.cycles]);
+
+
+  useEffect(() => {
+    setDetectedBank(detectBank(raw));
+  }, [raw]);
 
   const detectBank = (text: string): BankType => {
       const lower = text.toLowerCase();
@@ -47,14 +71,22 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
 
   const createTransaction = (date: string, description: string, sender: string, amount: number, type: 'income' | 'expense'): ImportedTransaction => {
       let category = '';
-      const cleanSender = sender.replace(/[\d\.\-\/]{9,}/g, '')
+      const cleanSender = sender.replace(/[\d.\-\/]{9,}/g, '')
                                 .replace(/(\d{2}\/\d{2})/g, '')
                                 .replace(/Docto\./g, '')
                                 .trim().substring(0, 40);
       
-      if (cleanSender && state.categoryMappings && state.categoryMappings[cleanSender.toLowerCase()]) {
-          category = state.categoryMappings[cleanSender.toLowerCase()];
+      if (cleanSender && state.categoryMappings) {
+          const specificKey = `${cleanSender.toLowerCase()}-${amount.toFixed(2)}`;
+          const genericKey = cleanSender.toLowerCase();
+          
+          if (state.categoryMappings[specificKey]) {
+              category = state.categoryMappings[specificKey];
+          } else if (state.categoryMappings[genericKey]) {
+              category = state.categoryMappings[genericKey];
+          }
       }
+
       if (!category) {
           const lower = (sender + ' ' + description).toLowerCase();
           for (const [k, c] of Object.entries(CATEGORY_KEYWORDS)) {
@@ -72,332 +104,334 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
       };
   };
 
-  // --- PARSER BRADESCO 5.0 (Multi-transaction per day) ---
-  const parseBradesco = (text: string): ImportedTransaction[] => {
-      addLog(">>> Iniciando Parser Bradesco 5.0 (Multi-transação)");
-      const results: ImportedTransaction[] = [];
-      
-      const cleanText = text.replace(/"/g, ' ').replace(/\s+/g, ' ');
-      
-      const dateBlockRegex = /(\d{2}\/\d{2}\/\d{4})\s(.*?)(?=\s\d{2}\/\d{2}\/\d{4}|$)/g;
-      let blockMatch;
+    // --- PARSER BRADESCO 11.0 (Split by Date) ---
+    const parseBradesco = (text: string): ImportedTransaction[] => {
+        addLog(">>> Iniciando Parser Bradesco 11.0 (Split por Data)");
+        const results: ImportedTransaction[] = [];
 
-      while((blockMatch = dateBlockRegex.exec(cleanText)) !== null) {
-          const date = blockMatch[1];
-          const content = blockMatch[2];
+        // Usa um lookahead positivo para quebrar o texto por data, mantendo a data no início de cada pedaço.
+        const dateChunks = text.split(/(?=\d{2}\/\d{2}\/\d{4})/);
 
-          const transactionRegex = /(.*?)\s(\d{5,})\s([\d\.]+,\d{2})\s([\d\.]+,\d{2})/g;
-          let transactionMatch;
+        for (const chunk of dateChunks) {
+            const trimmedChunk = chunk.trim();
+            if (trimmedChunk.length < 10) continue;
 
-          while((transactionMatch = transactionRegex.exec(content)) !== null) {
-              let rawDesc = transactionMatch[1].trim();
-              const rawAmount = transactionMatch[3];
-              const amount = parseFloat(rawAmount.replace(/\./g, '').replace(',', '.'));
+            const dateMatch = trimmedChunk.match(/^(\d{2}\/\d{2}\/\d{4})/);
+            if (!dateMatch) continue;
+            
+            const currentDate = dateMatch[1];
+            addLog(`Processando bloco para a data: ${currentDate}`);
+            
+            // Remove a data do início e mescla o resto do bloco em uma única linha, limpando espaços extras.
+            const content = trimmedChunk.substring(currentDate.length).replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+            
+            // Regex para encontrar um padrão de [Descrição] [Valor Monetário] [Saldo Monetário].
+            // A chave é exigir a vírgula e dois decimais para garantir que estamos pegando valores, não outros números.
+            const transRegex = /(.*?)\s+([\d.,]+,\d{2})\s+([\d.,]+,\d{2})/g;
+            let match;
 
-              if (amount === 0) continue; 
-              if (rawDesc.match(/(Total|Saldo|LANC|Agência|Folha)/i)) continue;
+            while ((match = transRegex.exec(content)) !== null) {
+                let [_, description, valueStr, balanceStr] = match;
+                
+                // Limpa o saldo da transação anterior que pode ter sido pego no início da descrição.
+                description = description.trim().replace(/^[\d.,]+\s+/, '');
 
-              let type: 'income' | 'expense' = 'expense';
-              let description = 'Transação';
-              let sender = '';
+                // Filtra matches curtos ou que são claramente de cabeçalho/rodapé.
+                if (description.length < 4 || description.match(/^(SALDO ANTERIOR|Total|COD. LANC.)/i)) {
+                    addLog(`Ignorando linha de descrição: '${description}'`);
+                    continue;
+                }
+                
+                addLog(`Candidato encontrado: D='${description}', V='${valueStr}'`);
 
-              if (rawDesc.includes('REM:')) {
-                  type = 'income';
-                  description = 'Pix Recebido';
-                  sender = rawDesc.split('REM:')[1].trim();
-              } else if (rawDesc.includes('DES:')) {
-                  type = 'expense';
-                  description = 'Pix Enviado';
-                  sender = rawDesc.split('DES:')[1].trim();
-              } else if (rawDesc.includes('PIX QR CODE')) {
-                  type = 'expense';
-                  description = 'Pagamento QR';
-                  if (rawDesc.includes('DES:')) sender = rawDesc.split('DES:')[1].trim();
-                  else sender = rawDesc.split('PIX QR CODE')[1].trim() || 'QR Code';
-              } else if (rawDesc.includes('DEP DISPONIVEL')) {
-                  type = 'income';
-                  description = 'Depósito';
-                  sender = 'Depósito em Conta';
-              } else if (rawDesc.includes('TRANSF SALDO C/SAL P/CC')) {
-                  type = 'income';
-                  description = 'Resgate/Transf.';
-                  sender = rawDesc.split('TRANSF SALDO C/SAL P/CC')[1].trim() || 'Resgate/Transf. Saldo';
-              } else if (rawDesc.includes('TRANSF SALDO')) {
-                  type = 'income';
-                  sender = 'Resgate/Transf. Saldo';
-              }
-              else {
-                  sender = rawDesc;
-                  if (rawDesc.match(/(CR[ÉE]DITO|RECEB|DEP[ÓO]SITO)/i)) type = 'income';
-              }
+                const amount = parseFloat(valueStr.replace(/\./g, '').replace(',', '.'));
+                if (isNaN(amount) || amount === 0) continue;
 
-              sender = sender.replace(/\d{2}\/\d{2}/g, '').trim();
-              sender = sender.split(/\s\d{5,}/)[0].trim();
+                // A heurística para determinar o tipo da transação é a melhor aposta aqui.
+                const isCredit = /crédito|rem:|transf saldo|dep/i.test(description);
+                const type = isCredit ? 'income' : 'expense';
 
-              if (sender) {
-                  const isDuplicate = results.some(r => r.date === date && r.amount === amount && r.sender === sender);
-                  if (!isDuplicate) {
-                      results.push(createTransaction(date, description, sender, amount, type));
-                  }
-              }
-          }
-      }
-      return results;
-  };
+                // Limpeza do 'sender' para torná-lo mais legível.
+                let sender = description
+                    .replace(/REM:|DES:/i, '')
+                    .replace(/PIX QR CODE ESTATICO|PIX QR CODE DINAMICO/i, '')
+                    .replace(/TRANSFERENCIA PIX/i, '')
+                    .replace(/\d{2}\/\d{2}/, '')       // Remove datas parciais (ex: 13/12)
+                    .replace(/\s+\d{6,}\s*/, '')   // Remove números de documento
+                    .trim();
+                
+                results.push(createTransaction(currentDate, description, sender, amount, type));
+            }
+        }
+        addLog(`Parser Bradesco v11.0 finalizado. Itens: ${results.length}`);
+        return results;
+    };
 
+  // --- PARSER GENERICO 5.0 (Adaptado do Nubank Parser) ---
   const parseGenericScanner = (text: string, bank: BankType) => {
-      addLog(`Iniciando Scanner para ${bank}...`);
+      addLog(`Iniciando Scanner Genérico 5.0 para ${bank}... (Adaptado do Nubank)`);
       const results: ImportedTransaction[] = [];
-      const cleanText = text.replace(/"/g, ' ').replace(/\n/g, ' ').replace(/\s+/g, ' ');
+      const lines = text.split('\n');
       
-      const dateRegex = /(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})|(\d{2})\s(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)(?:\s(\d{4}))?/gi;
-      const amountRegex = /(?:R\$\s?)?(-)?\s?(\d{1,3}(?:\.\d{3})*,\d{2})([+-])?/g;
-
-      let dateMatch;
-      const datePositions = [];
-      while ((dateMatch = dateRegex.exec(cleanText)) !== null) {
-          let dateStr = '';
-          if (dateMatch[1]) { 
-              const y = dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3];
-              dateStr = `${dateMatch[1]}/${dateMatch[2]}/${y}`;
-          } else { 
-              const month = MONTH_MAP[dateMatch[5].toUpperCase()];
-              const year = dateMatch[6] || new Date().getFullYear().toString();
-              dateStr = `${dateMatch[4]}/${month}/${year}`; 
-          }
-          if (!dateStr.includes('2021')) datePositions.push({ pos: dateMatch.index, end: dateMatch.index + dateMatch[0].length, date: dateStr });
-      }
-
-      for (let i = 0; i < datePositions.length; i++) {
-          const current = datePositions[i];
-          const next = datePositions[i+1];
-          const searchLimit = next ? Math.min(next.pos, current.end + 600) : current.end + 600;
-          const blockText = cleanText.substring(current.end, searchLimit);
-
-          amountRegex.lastIndex = 0;
-          let amountMatch;
-          let foundOne = false; // Só pega 1 transação por data no genérico para evitar pegar saldo
-          
-          while ((amountMatch = amountRegex.exec(blockText)) !== null) {
-              if (foundOne && bank !== 'Mercado Pago') continue; // MP pode ter várias no mesmo dia
-
-              const valStr = amountMatch[2].replace('.', '').replace(',', '.');
-              const amount = parseFloat(valStr);
-              if (amount === 0) continue; 
-
-              const textBefore = blockText.substring(Math.max(0, amountMatch.index - 30), amountMatch.index);
-              if (textBefore.match(/Saldo|Total/i)) continue;
-
-              const isNegative = amountMatch[1] === '-' || amountMatch[3] === '-';
-              
-              let rawDesc = blockText.substring(0, amountMatch.index).trim();
-              if (rawDesc.length < 3) rawDesc = blockText.substring(amountMatch.index + amountMatch[0].length).trim().split(/(R\$|\d{2}\/)/)[0];
-              rawDesc = rawDesc.replace(/^[\s\-,]+/, ''); 
-
-              let type: 'income' | 'expense' = isNegative ? 'expense' : 'income';
-              let description = 'Transação';
-              let sender = '';
-              const lowerDesc = rawDesc.toLowerCase();
-
-              if (lowerDesc.match(/(recebid|dep[óo]sito|estorno|cr[ée]dito|entrada)/)) type = 'income';
-              else if (lowerDesc.match(/(pagamento|envio|saque|compra|d[ée]bito|saída)/)) type = 'expense';
-
-              if (bank === 'Mercado Pago') {
-                  if (rawDesc.includes('Pix recebida')) sender = rawDesc.replace(/.*recebida/, '').trim();
-                  else if (rawDesc.includes('Pix enviada')) sender = rawDesc.replace(/.*enviada/, '').trim();
-                  else if (rawDesc.includes('Compra')) sender = rawDesc.replace(/.*Compra de/, '').trim();
-                  else sender = rawDesc;
-              } else if (bank === 'PicPay') {
-                  if (lowerDesc.includes('pix')) sender = rawDesc.replace(/pix (enviado|recebido)/i, '').trim();
-                  else sender = rawDesc;
-                  if (sender.length < 3) sender = 'PicPay Diversos';
-              } else {
-                  sender = rawDesc.replace(/(pelo Pix|via Open Banking|Pagamento de)/gi, '').trim();
-              }
-
-              sender = sender.replace(/(\d{10,}|\d{2}:\d{2}:\d{2}|CPF).*/gi, '').trim();
-              
-              if (sender && !sender.match(/(Total|Agência|Extrato)/i) && sender.length > 2) {
-                  const isDuplicate = results.some(r => r.date === current.date && r.amount === amount && r.sender === sender);
-                  if (!isDuplicate) {
-                      results.push(createTransaction(current.date, description, sender, amount, type));
-                      foundOne = true;
-                  }
-              }
-          }
-      }
-      return results;
-  };
-
-  const parseMercadoPago = (text: string): ImportedTransaction[] => {
-      addLog(">>> Iniciando Parser MercadoPago 3.0 (ID Dedicado)");
-      const results: ImportedTransaction[] = [];
-      const processedIds = new Set<string>();
-      const cleanText = text.replace(/\n/g, ' ').replace(/\s+/g, ' ');
-
-      // Expressão Regular mais estrita para transações do Mercado Pago.
-      // Procura por uma data, seguida por qualquer texto que NÃO seja outra data,
-      // um ID de operação, e o valor. Isso evita que a regex comece no cabeçalho.
-      const transactionRegex = /(\d{2}-\d{2}-\d{4})\s((?:(?!\d{2}-\d{2}-\d{4}).)*?)\s(\d{12,})\s(R\$\s-?[\d\.]+,\d{2})/g;
-
-      let match;
-      while ((match = transactionRegex.exec(cleanText)) !== null) {
-          const id = match[3];
-          if (processedIds.has(id)) continue; // Deduplicação pelo ID da operação
-
-          const date = match[1].replace(/-/g, '/');
-          let description = match[2].trim();
-          const valueStr = match[4];
-          
-          // Filtra lixo residual do cabeçalho que possa ter vazado
-          if (description.includes('DETALHE DOS MOVIMENTOS') || description.includes('ID da operação')) continue;
-
-          const amount = parseFloat(valueStr.replace('R$ ', '').replace(/\./g, '').replace(',', '.'));
-          const absAmount = Math.abs(amount);
-          const type = amount < 0 ? 'expense' : 'income';
-          
-          let sender = 'Mercado Pago';
-          let mainDesc = 'Transação';
-
-          if (description.includes('Transferência Pix recebida')) {
-              mainDesc = 'Pix Recebido';
-              sender = description.replace('Transferência Pix recebida', '').trim();
-          } else if (description.includes('Transferência Pix enviada')) {
-              mainDesc = 'Pix Enviado';
-              sender = description.replace('Transferência Pix enviada', '').trim();
-          } else if (description.startsWith('Compra de')) {
-              mainDesc = 'Compra';
-              sender = description.replace('Compra de', '').trim();
-          } else if (description.startsWith('Pagamento com QR Pix')) {
-              mainDesc = 'Pagamento QR';
-              sender = description.replace('Pagamento com QR Pix', '').trim();
-          } else if (description.startsWith('Pagamento')) {
-              mainDesc = 'Pagamento';
-              sender = description.replace('Pagamento', '').trim();
-          } else if (description.startsWith('Rendimentos')) {
-              mainDesc = 'Rendimento';
-              sender = 'Mercado Pago';
-          } else {
-              sender = description;
-          }
-          
-          if (sender) {
-              processedIds.add(id);
-              results.push(createTransaction(date, mainDesc, sender, absAmount, type));
-          }
-      }
-      return results;
-  };
-
-  const parseNubank = (text: string): ImportedTransaction[] => {
-      addLog(">>> Iniciando Parser Nubank 2.0 (Dedicado)");
-      const results: ImportedTransaction[] = [];
-      
-      // Heurística para recriar linhas, separando o texto a cada nova data.
-      const cleanText = text.replace(/(\d{2} \w{3} \d{4})/g, '---SPLIT---$1').replace(/\s+/g, ' ');
-      const lines = cleanText.split('---SPLIT---');
-
       let currentDate = '';
-      let currentType: 'income' | 'expense' = 'expense';
+      let descriptionBuffer: string[] = [];
+
+      const dateRegex = /((\d{2}[\/\-]\d{2}[\/\-]\d{2,4})|(\d{2}\s(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)(?:\s\d{4})?)|(\d{1,2} de \w+ de \d{4}))/i;
+      const valueOnlyRegex = /^(-)?\s?(?:R\$\s)?([\d.,]+,\d{2})$/;
+      const junkRegex = /saldo|total|lançamento|anterior|fatura|fale com a gente|sac:|ouvidoria:|cpf:|agência:|conta:|data\/hora|descrição das|movimentações|extrato gerado/i;
+
+      const processBuffer = (amount: number, isNegative: boolean) => {
+          if (descriptionBuffer.length > 0 && currentDate) {
+              const description = descriptionBuffer.join(' ').trim();
+              
+              let type: 'income' | 'expense' = isNegative ? 'expense' : 'income';
+              if (description.toLowerCase().match(/(recebid|cr[ée]dito|entrada)/)) type = 'income';
+              else if (description.toLowerCase().match(/(pagamento|enviad|d[ée]bito|saída|compra)/)) type = 'expense';
+
+              addLog(`Salvando transação genérica: ${currentDate} | ${description} | ${amount}`);
+              results.push(createTransaction(currentDate, description, description, amount, type));
+          }
+          descriptionBuffer = [];
+      };
 
       for (const line of lines) {
-          if (!line.trim()) continue;
+          const trimmedLine = line.trim();
+          if (trimmedLine.length < 2 || junkRegex.test(trimmedLine)) continue;
 
-          const dateMatch = line.match(/(\d{2} (\w{3}) \d{4})/);
-          if (dateMatch) {
-              const month = MONTH_MAP[dateMatch[2]];
-              if(month) currentDate = `${dateMatch[1].substring(0,2)}/${month}/${dateMatch[1].substring(7,11)}`;
+          const dateMatch = trimmedLine.match(dateRegex);
+          if (dateMatch && !trimmedLine.match(valueOnlyRegex)) {
+              processBuffer(0, false); // Processa buffer anterior antes de mudar a data
+              
+              let dateStr = '';
+              if (dateMatch[2]) { /* DD/MM/YYYY */
+                  const parts = dateMatch[2].split(/[\/\-]/);
+                  dateStr = `${parts[0]}/${parts[1]}/${parts[2].length === 2 ? '20' + parts[2] : parts[2]}`;
+              } else if (dateMatch[3]) { /* DD MÊS YYYY */
+                  const parts = dateMatch[3].split(' ');
+                  dateStr = `${parts[0]}/${MONTH_MAP[parts[1].toUpperCase()]}/${parts[2] || new Date().getFullYear()}`;
+              } else if (dateMatch[4]) { /* DD de Mês de YYYY */
+                  const parts = dateMatch[4].split(' de ');
+                  const month = MONTH_MAP[parts[1].toUpperCase()] || MONTH_MAP[parts[1].toUpperCase().substring(0,3)];
+                  if(month) dateStr = `${parts[0].padStart(2, '0')}/${month}/${parts[2]}`;
+              }
+              
+              if(dateStr) currentDate = dateStr;
+              
+              const descPart = trimmedLine.replace(dateMatch[0], "").trim();
+              if (descPart.length > 2) descriptionBuffer.push(descPart);
+              
+              continue;
           }
 
-          if (!currentDate) continue;
+          const valueMatch = trimmedLine.match(valueOnlyRegex);
+          if (valueMatch) {
+              const amount = parseFloat(valueMatch[2].replace(/\./g, '').replace(',', '.'));
+              const isNegative = valueMatch[1] === '-';
+              processBuffer(amount, isNegative);
+              continue;
+          }
+          
+          descriptionBuffer.push(trimmedLine);
+      }
+      processBuffer(0, false); // Processa o último buffer
 
-          // Divide a linha em seções de entrada e saída para processamento
-          const sections = line.split(/Total de entradas|Total de saídas/i);
-          let sectionType: 'income' | 'expense' = line.toLowerCase().includes('total de entradas') ? 'income' : 'expense';
-
-          for(const section of sections) {
-              if (!section.trim()) continue;
-
-              // Determina o tipo baseado no que precedeu a seção
-              const fullSectionStr = (sectionType === 'income' ? 'Total de entradas ' : 'Total de saídas ') + section;
-              if (fullSectionStr.toLowerCase().includes('total de saídas')) sectionType = 'expense';
-              if (fullSectionStr.toLowerCase().includes('total de entradas')) sectionType = 'income';
-              
-              const amountRegex = /([\d\.]*,\d{2})/g;
-              const amounts = (section.match(amountRegex) || []);
-
-              // O primeiro valor é o total, os seguintes são as transações reais.
-              if (amounts.length > 1) {
-                  for (let i = 1; i < amounts.length; i++) {
-                      const amountVal = amounts[i];
-                      const amount = parseFloat(amountVal.replace(/\./g, '').replace(',', '.'));
-                      
-                      // Encontra a descrição: texto entre o valor anterior e o atual
-                      const prevAmountIndex = section.indexOf(amounts[i-1]) + amounts[i-1].length;
-                      const currentAmountIndex = section.indexOf(amountVal, prevAmountIndex);
-                      let description = section.substring(prevAmountIndex, currentAmountIndex).trim();
-
-                      if (description.length < 3) continue;
-
-                      let sender = description;
-                      if (sender.includes('pelo Pix')) sender = sender.split('pelo Pix')[1].trim();
-                      else if (sender.includes('Pagamento de fatura')) sender = 'Fatura Nubank';
-                      else if (sender.includes('Reembolso recebido')) sender = sender.split('pelo Pix')[1].trim();
-
-
-                      results.push(createTransaction(currentDate, description, sender, amount, sectionType));
+      addLog(`Scanner Genérico v5.0 finalizado. Itens: ${results.length}`);
+      return results;
+  };
+    
+      // --- PARSER MERCADO PAGO 5.0 (State Machine) ---
+      const parseMercadoPago = (text: string): ImportedTransaction[] => {
+          addLog(">>> Iniciando Parser MercadoPago 5.0 (Máquina de Estados)");
+          const results: ImportedTransaction[] = [];
+          const lines = text.split('\n');
+  
+          let buffer: { date: string; description: string[]; value: string; } | null = null;
+  
+          const processBuffer = () => {
+              if (buffer && buffer.date && buffer.description.length > 0 && buffer.value) {
+                  const fullDescription = buffer.description.join(' ');
+                  const amount = parseFloat(buffer.value.replace('R$ ', '').replace(/\./g, '').replace(',', '.'));
+                  const absAmount = Math.abs(amount);
+                  const type = amount < 0 ? 'expense' : 'income';
+  
+                  let sender = 'Mercado Pago';
+                  if (fullDescription.includes('Transferência Pix recebida')) {
+                      sender = fullDescription.replace('Transferência Pix recebida', '').trim();
+                  } else if (fullDescription.includes('Transferência Pix enviada')) {
+                      sender = fullDescription.replace('Transferência Pix enviada', '').trim();
+                  } else if (fullDescription.startsWith('Compra de')) {
+                      sender = fullDescription.replace('Compra de', '').trim();
+                  } else if (fullDescription.startsWith('Pagamento ')) {
+                      sender = fullDescription.replace('Pagamento ', '').trim();
+                  } else if (fullDescription.startsWith('Rendimentos')) {
+                      sender = 'Mercado Pago';
+                  } else {
+                      sender = fullDescription;
+                  }
+                  
+                  addLog(`Salvando transação: ${buffer.date} | ${sender} | ${amount}`);
+                  results.push(createTransaction(buffer.date.replace(/-/g, '/'), fullDescription, sender, absAmount, type));
+              }
+              buffer = null;
+          };
+  
+          const dateRegex = /^\d{2}-\d{2}-\d{4}$/;
+          const valueRegex = /^R\$\s-?[\d.,]+$/;
+          const idRegex = /^\d{10,}$/;
+  
+          for (const line of lines) {
+              const trimmedLine = line.trim();
+  
+              if (dateRegex.test(trimmedLine)) {
+                  processBuffer(); // Processa o buffer anterior antes de começar um novo
+                  buffer = { date: trimmedLine, description: [], value: '' };
+                  continue;
+              }
+  
+              if (buffer) {
+                  if (!buffer.value && valueRegex.test(trimmedLine)) {
+                      buffer.value = trimmedLine;
+                      // Encontrar o valor geralmente significa o fim de uma transação no extrato do MP.
+                      // Poderíamos processar o buffer aqui, mas esperar pela próxima data é mais seguro.
+                  } else if (!idRegex.test(trimmedLine) && trimmedLine.length > 2 && !trimmedLine.startsWith('DETALHE DOS MOVIMENTOS')) {
+                      // Adiciona à descrição se não for um ID, não for muito curto e não for um cabeçalho.
+                      buffer.description.push(trimmedLine);
                   }
               }
           }
-      }
-      return results;
-  };
+          processBuffer(); // Processa o último item no buffer
+  
+          addLog(`Parser MercadoPago v5.0 finalizado. Itens: ${results.length}`);
+          return results;
+      };
+    // --- PARSER NUBANK 4.0 (State Machine) ---
+    const parseNubank = (text: string): ImportedTransaction[] => {
+        addLog(">>> Iniciando Parser Nubank 4.0 (Máquina de Estados)");
+        const results: ImportedTransaction[] = [];
+        const lines = text.split('\n');
+        
+        let currentDate = '';
+        let currentSection: 'income' | 'expense' | null = null;
+        let descriptionBuffer: string[] = [];
 
-  const parsePicPay = (text: string): ImportedTransaction[] => {
-      addLog(">>> Iniciando Parser PicPay 2.0 (Dedicado)");
-      const results: ImportedTransaction[] = [];
-      const processed = new Set<string>();
-      const cleanText = text.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+        const dateRegex = /(\d{2})\s(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\s(\d{4})/;
+        const valueOnlyRegex = /^([\d.]*,\d{2})$/;
+        const totalRegex = /^\+\s|Total de/;
 
-      // Regex para o padrão de transação do PicPay
-      // G1: Data/Hora, G2: Descrição, G3: Valor
-      const transactionRegex = /(\d{2}\/\d{2}\/\d{4}\s\d{2}:\d{2}:\d{2})\s((?:(?!(?:\s-)?\s?R\$\s).)*?)\s((?:- )?R\$\s[\d\.]+,\d{2})/g;
+        const processBuffer = (amount: number) => {
+            if (descriptionBuffer.length > 0 && currentDate && currentSection) {
+                const description = descriptionBuffer.join(' ');
+                let sender = description; // Por padrão, o sender é a descrição completa
 
-      let match;
-      while ((match = transactionRegex.exec(cleanText)) !== null) {
-          const dateTime = match[1];
-          let description = match[2].trim();
-          const valueStr = match[3];
-          
-          // Chave única para evitar reprocessar a mesma linha
-          const uniqueKey = `${dateTime} ${description} ${valueStr}`;
-          if (processed.has(uniqueKey)) continue;
+                if (sender.includes('pelo Pix')) {
+                    sender = sender.split('pelo Pix')[1].trim().split(' - ')[0];
+                } else if (sender.includes('Pagamento de fatura')) {
+                    sender = 'Fatura Nubank';
+                }
 
-          // Filtra lixo
-          if (description.includes('Descrição das Movimentações') || description.length < 3) continue;
+                addLog(`Salvando transação: ${currentDate} | ${sender} | ${amount}`);
+                results.push(createTransaction(currentDate, description, sender, amount, currentSection));
+            }
+            descriptionBuffer = [];
+        };
 
-          const hasMinusSign = valueStr.includes('-');
-          const amount = parseFloat(valueStr.replace('-','').replace('R$','').replace(/\./g,'').replace(',','.').trim());
-          if (isNaN(amount)) continue;
-          
-          const type = hasMinusSign ? 'expense' : 'income';
-          
-          // No PicPay, a descrição é a melhor informação que temos sobre o "sender"
-          let sender = description;
-          let mainDesc = description;
+        for (const line of lines) {
+            const trimmedLine = line.trim();
 
-          if (description.startsWith('Pagamento de boleto')) {
-              sender = 'Pagamento Boleto';
-          } else if (description.startsWith('Recarga em carteira')) {
-              sender = 'Recarga PicPay';
+            const dateMatch = trimmedLine.match(dateRegex);
+            if (dateMatch) {
+                processBuffer(0); // Processa buffer anterior antes de mudar a data
+                const month = MONTH_MAP[dateMatch[2]];
+                currentDate = `${dateMatch[1]}/${month}/${dateMatch[3]}`;
+                addLog(`Data atualizada para: ${currentDate}`);
+                continue;
+            }
+
+            if (trimmedLine.toLowerCase().startsWith('total de entradas')) {
+                processBuffer(0);
+                currentSection = 'income';
+                continue;
+            }
+            if (trimmedLine.toLowerCase().startsWith('total de saídas')) {
+                processBuffer(0);
+                currentSection = 'expense';
+                continue;
+            }
+
+            const valueMatch = trimmedLine.match(valueOnlyRegex);
+            if (valueMatch) {
+                const amount = parseFloat(valueMatch[1].replace(/\./g, '').replace(',', '.'));
+                processBuffer(amount); // Encontramos um valor, processamos o buffer anterior com ele
+                continue;
+            }
+            
+            // Se chegamos aqui, a linha é parte de uma descrição
+            if (currentDate && currentSection && trimmedLine.length > 2 && !totalRegex.test(trimmedLine)) {
+                descriptionBuffer.push(trimmedLine);
+            }
+        }
+        processBuffer(0); // Processa qualquer sobra no buffer no final do arquivo
+
+        addLog(`Parser Nubank v4.0 finalizado. Itens: ${results.length}`);
+        return results;
+    };
+    
+      // --- PARSER PICPAY 4.0 (State Machine) ---
+      const parsePicPay = (text: string): ImportedTransaction[] => {
+          addLog(">>> Iniciando Parser PicPay 4.0 (Máquina de Estados)");
+          const results: ImportedTransaction[] = [];
+          const lines = text.split('\n');
+  
+          let buffer: { date: string; time: string; description: string[]; value: string; } | null = null;
+  
+          const processBuffer = () => {
+              if (buffer && buffer.date && buffer.time && buffer.description.length > 0 && buffer.value) {
+                  const fullDescription = buffer.description.join(' ');
+                  const hasMinusSign = buffer.value.includes('-');
+                  const amount = parseFloat(buffer.value.replace(/-? R\$\s?/, '').replace(/\./g, '').replace(',', '.'));
+                  if (isNaN(amount) || amount === 0) return;
+  
+                  const type = hasMinusSign ? 'expense' : 'income';
+                  let sender = fullDescription;
+  
+                  if (fullDescription.startsWith('Pagamento de boleto')) sender = 'Pagamento Boleto';
+                  else if (fullDescription.startsWith('Recarga em carteira')) sender = 'Recarga PicPay';
+                  
+                  addLog(`Salvando transação: ${buffer.date} | ${sender} | ${amount}`);
+                  results.push(createTransaction(buffer.date, fullDescription, sender, amount, type));
+              }
+              buffer = null;
+          };
+  
+          const dateRegex = /^\d{2}\/\d{2}\/\d{4}$/;
+          const timeRegex = /^\d{2}:\d{2}:\d{2}$/;
+          const valueRegex = /^-? R\$\s[\d.,]+$/;
+  
+          for (const line of lines) {
+              const trimmedLine = line.trim();
+  
+              if (dateRegex.test(trimmedLine)) {
+                  processBuffer();
+                  buffer = { date: trimmedLine, time: '', description: [], value: '' };
+                  continue;
+              }
+  
+              if (buffer) {
+                  if (!buffer.time && timeRegex.test(trimmedLine)) {
+                      buffer.time = trimmedLine;
+                  } else if (buffer.time && !buffer.value && valueRegex.test(trimmedLine)) {
+                      buffer.value = trimmedLine;
+                  } else if (buffer.time && trimmedLine.length > 2 && !valueRegex.test(trimmedLine)) {
+                      // Adiciona à descrição se já tivermos a hora e a linha não for um valor
+                      buffer.description.push(trimmedLine);
+                  }
+              }
           }
-
-          processed.add(uniqueKey);
-          results.push(createTransaction(dateTime.split(' ')[0], mainDesc, sender, amount, type));
-      }
-      return results;
-  };
-
+          processBuffer(); // Processa o último item
+  
+          addLog(`Parser PicPay v4.0 finalizado. Itens: ${results.length}`);
+          return results;
+      };
   // --- CONTROLLER ---
   const processText = (forceGeneric = false) => {
       if(!raw.trim()) return toast.error("Sem texto.");
@@ -430,9 +464,20 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
         return dateA - dateB;
       });
 
-      setParsed(found);
+      // Verifica duplicatas
+      let duplicateCount = 0;
+      const foundWithDuplicates = found.map(item => {
+        const fingerprint = createTransactionFingerprint(item);
+        const isDuplicate = existingTxFingerprints.has(fingerprint);
+        if (isDuplicate) duplicateCount++;
+        return { ...item, isDuplicate };
+      });
       
-      if (found.length > 0) toast.success(`${found.length} itens encontrados!`);
+      if(duplicateCount > 0) addLog(`${duplicateCount} duplicatas encontradas e marcadas.`);
+
+      setParsed(foundWithDuplicates);
+      
+      if (found.length > 0) toast.success(`${found.length} itens encontrados! (${duplicateCount} já existem)`);
       else toast.error("Nada encontrado.");
   };
 
@@ -460,7 +505,7 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
           for(let i=1; i<=doc.numPages; i++) {
               const p = await doc.getPage(i);
               const c = await p.getTextContent();
-              txt += c.items.map((it:any)=>it.str).join(' ') + ' '; 
+              txt += c.items.map((it:any)=>it.str).join('\n') + '\n'; 
           }
           setRaw(txt);
           addLog(`PDF Lido: ${doc.numPages} pgs.`);
@@ -473,7 +518,9 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
       setParsed(prev => prev.map(p => {
           if (p.id === id) {
               const updated = { ...p, [field]: value };
-              if (field === 'category' && updated.sender) learnCategory(updated.sender, value as string);
+              if (field === 'category' && updated.sender) {
+                  learnCategory(updated.sender, value as string, updated.amount, false);
+              }
               return updated;
           }
           return p;
@@ -483,15 +530,21 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
   const removeItem = (id: string) => setParsed(prev => prev.filter(p => p.id !== id));
 
   const handleConfirm = () => {
-      if(parsed.length === 0) return;
-      addBatchedTransactions(parsed);
-      toast.success("Salvo!");
+      const newTransactions = parsed.filter(t => !t.isDuplicate);
+      if (newTransactions.length === 0) {
+          toast.info("Nenhuma transação nova para salvar.");
+          onFinish();
+          return;
+      }
+      addBatchedTransactions(newTransactions);
+      toast.success(`${newTransactions.length} nova(s) transação(ões) salva(s)!`);
       onFinish();
   };
 
   const filteredList = parsed.filter(t => 
-      t.sender?.toLowerCase().includes(filterText.toLowerCase()) || 
-      t.description.toLowerCase().includes(filterText.toLowerCase())
+      (showDuplicates || !t.isDuplicate) &&
+      (t.sender?.toLowerCase().includes(filterText.toLowerCase()) || 
+      t.description.toLowerCase().includes(filterText.toLowerCase()))
   );
 
   const totalIn = filteredList.filter(t=>t.type==='income').reduce((a,b)=>a+b.amount, 0);
@@ -499,6 +552,19 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
 
   return (
       <div className="space-y-6 pb-24">
+          <div className="p-4 rounded-md bg-red-50 border border-red-200">
+              <div className="flex flex-col items-center text-center md:flex-row md:text-left md:items-start">
+                  <div className="flex-shrink-0">
+                      <AlertTriangle className="h-5 w-5 text-red-400" aria-hidden="true" />
+                  </div>
+                  <div className="mt-3 md:mt-0 md:ml-3">
+                      <h3 className="text-sm font-medium text-red-800">Atenção</h3>
+                      <div className="mt-2 text-sm text-red-700">
+                          <p>A análise de extratos é um processo automático e pode não ser 100% precisa. Sempre revise os valores e categorias cuidadosamente antes de confirmar.</p>
+                      </div>
+                  </div>
+              </div>
+          </div>
           {showLogs && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
                   <div className="bg-white p-6 rounded-lg max-w-2xl w-full shadow-2xl h-[500px] flex flex-col">
@@ -542,7 +608,7 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
                       </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Label htmlFor="pdf" className="cursor-pointer flex flex-col items-center justify-center p-6 bg-white border rounded-xl hover:bg-slate-50 transition-colors shadow-sm">
+                      <Label htmlFor="pdf" className="cursor-pointer flex flex-col items-center justify-center p-4 md:p-6 bg-white border rounded-xl hover:bg-slate-50 transition-colors shadow-sm">
                           {loading ? <Loader2 className="h-8 w-8 animate-spin text-blue-500"/> : <Upload className="h-8 w-8 text-slate-400"/>}
                           <span className="mt-2 text-sm font-medium text-slate-600">{loading ? 'Lendo...' : 'Carregar Extrato (PDF)'}</span>
                           <input id="pdf" type="file" className="hidden" accept=".pdf" onChange={loadPdf} />
@@ -559,7 +625,12 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
               <Card className="shadow-lg border-0 ring-1 ring-black/5 animate-in slide-in-from-bottom-10">
                   <CardHeader className="pb-2 border-b bg-white sticky top-0 z-10 rounded-t-xl">
                       <div className="flex flex-col md:flex-row justify-between items-center gap-2">
-                          <CardTitle className="text-lg">Revisão ({parsed.length})</CardTitle>
+                          <div className='flex items-center gap-4'>
+                            <CardTitle className="text-lg">Revisão ({filteredList.length})</CardTitle>
+                            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setShowDuplicates(p => !p)}>
+                                {showDuplicates ? 'Ocultar' : 'Mostrar'} Duplicatas
+                            </Button>
+                          </div>
                           <div className="relative w-40">
                             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400"/>
                             <Input placeholder="Filtrar..." className="h-7 pl-7 pr-7 text-xs bg-slate-100 border-none" value={filterText} onChange={e=>setFilterText(e.target.value)} />
@@ -574,28 +645,33 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
                           <table className="w-full text-xs text-left whitespace-nowrap">
                               <thead className="bg-slate-100 text-slate-500 uppercase font-semibold sticky top-0 z-10 shadow-sm">
                                   <tr>
-                                      <th className="p-3 w-8 bg-slate-100"></th>
-                                      <th className="p-3 w-20 bg-slate-100">Data</th>
-                                      <th className="p-3 bg-slate-100 w-1/3">Nome / Estabelecimento</th>
-                                      <th className="p-3 bg-slate-100">Tipo</th>
-                                      <th className="p-3 w-32 bg-slate-100">Categoria</th>
+                                      <th className="p-3 bg-slate-100"></th>
+                                      <th className="p-3 bg-slate-100" title="Duplicata?">Dup</th>
+                                      <th className="p-3 bg-slate-100">Data</th>
+                                      <th className="p-3 bg-slate-100">Nome / Estabelecimento</th>
+                                      <th className="p-3 bg-slate-100">Descrição</th>
+                                      <th className="p-3 bg-slate-100">Categoria</th>
                                       <th className="p-3 text-right bg-slate-100">Valor</th>
                                   </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 bg-white">
                                   {filteredList.map(t=>(
-                                      <tr key={t.id} className={`group hover:bg-slate-50 transition-colors ${t.type === 'income' ? 'bg-emerald-50/30' : 'bg-red-50/20'}`}>
+                                      <tr key={t.id} title={t.isDuplicate ? "Esta transação parece já existir no seu planejamento." : ""} className={`group hover:bg-slate-50 transition-colors ${t.isDuplicate ? 'bg-slate-100 text-slate-400 opacity-70' : (t.type === 'income' ? 'bg-emerald-50/30' : 'bg-red-50/20')}`}>
                                           <td className="p-2 text-center"><Trash2 onClick={()=>removeItem(t.id)} className="h-4 w-4 text-slate-300 cursor-pointer hover:text-red-500"/></td>
-                                          <td className="p-2 text-slate-600 font-medium">{t.date}</td>
-                                          <td className="p-2"><Input value={t.sender} onChange={e=>updateItem(t.id, 'sender', e.target.value)} className="h-7 text-xs font-bold text-slate-700 bg-transparent border-transparent hover:border-slate-300 focus:bg-white rounded px-1 w-full"/></td>
-                                          <td className="p-2"><Input value={t.description} onChange={e=>updateItem(t.id, 'description', e.target.value)} className="h-7 text-xs text-slate-500 bg-transparent border-transparent hover:border-slate-300 focus:bg-white rounded px-1 w-full"/></td>
+                                          <td className="p-2 text-center">
+                                            {t.isDuplicate && <Copy className="h-3 w-3 text-amber-500" />}
+                                          </td>
+                                          <td className="p-2 font-medium">{t.date}</td>
+                                          <td className="p-2"><Input disabled={t.isDuplicate} value={t.sender} onChange={e=>updateItem(t.id, 'sender', e.target.value)} className="h-7 text-xs font-bold text-slate-700 bg-transparent border-transparent hover:border-slate-300 focus:bg-white rounded px-1 w-full disabled:cursor-not-allowed disabled:hover:border-transparent"/></td>
+                                          <td className="p-2"><Input disabled={t.isDuplicate} value={t.description} onChange={e=>updateItem(t.id, 'description', e.target.value)} className="h-7 text-xs text-slate-500 bg-transparent border-transparent hover:border-slate-300 focus:bg-white rounded px-1 w-full disabled:cursor-not-allowed disabled:hover:border-transparent"/></td>
                                           <td className="p-2">
-                                              <select className="h-7 w-full text-xs bg-transparent border-transparent hover:border-slate-300 focus:bg-white rounded px-1 cursor-pointer" value={t.category} onChange={e=>updateItem(t.id, 'category', e.target.value)}>
-                                                  <option value="">-</option>
+                                              <select disabled={t.isDuplicate} className="h-7 w-full text-xs bg-transparent border-transparent hover:border-slate-300 focus:bg-white rounded px-1 cursor-pointer disabled:cursor-not-allowed disabled:hover:border-transparent" value={t.category} onChange={e=>updateItem(t.id, 'category', e.target.value)}>
+                                                  <option value="">-
+                                                  </option>
                                                   {state.categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                                               </select>
                                           </td>
-                                          <td className="p-2 text-right"><div className={`font-bold ${t.type==='income'?'text-emerald-600':'text-red-600'}`}>{t.type==='income' ? '+' : '-'} {formatCurrencyBRL(t.amount)}</div></td>
+                                          <td className="p-2 text-right"><div className={`font-bold ${t.isDuplicate ? '' : (t.type==='income'?'text-emerald-600':'text-red-600')}`}>{t.type==='income' ? '+' : '-'} {formatCurrencyBRL(t.amount)}</div></td>
                                       </tr>
                                   ))}
                               </tbody>
