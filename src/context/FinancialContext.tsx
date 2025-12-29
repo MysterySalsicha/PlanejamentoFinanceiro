@@ -21,7 +21,8 @@ const initialState: FinancialState = {
     { id: 'cat8', name: 'Outros', type: 'expense', color: '#64748b' },
   ],
   settings: { salaryDay: 5, hasAdvance: true, advanceDay: 20, theme: 'system' },
-  categoryMappings: {} // Inicializa vazio
+  categoryMappings: {}, // Inicializa vazio
+  viewDate: new Date().toISOString()
 };
 
 interface FinancialContextType {
@@ -42,6 +43,7 @@ interface FinancialContextType {
   switchCycle: (id: string) => void;
   learnCategory: (sender: string, category: string, amount: number, isFixed: boolean) => void; 
   clearDatabase: (range: 'all' | '2months' | '6months') => void;
+  setViewDate: (date: string) => void;
 }
 
 const FinancialContext = createContext<FinancialContextType | undefined>(undefined);
@@ -280,8 +282,10 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
       if (range === 'all') setState({ ...initialState, settings: state.settings, categories: state.categories, categoryMappings: state.categoryMappings });
   };
 
+  const setViewDate = (date: string) => setState(prev => ({ ...prev, viewDate: date }));
+
   return (
-    <FinancialContext.Provider value={{ state, updateSettings, addCategory, updateCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, addProjectedDebt, addBatchedTransactions, updateDebt, deleteDebt, payPartialDebt, switchCycle, learnCategory, clearDatabase }}>
+    <FinancialContext.Provider value={{ state, updateSettings, addCategory, updateCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, addProjectedDebt, addBatchedTransactions, updateDebt, deleteDebt, payPartialDebt, switchCycle, learnCategory, clearDatabase, setViewDate }}>
       {children}
     </FinancialContext.Provider>
   );
