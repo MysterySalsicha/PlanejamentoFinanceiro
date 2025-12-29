@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { v4 as uuidv4 } from 'uuid';
 import { FinancialState, Transaction, Debt, ImportedTransaction, UserSettings, FinancialCycle } from '@/types';
 import { MONTHS_FULL } from '@/lib/constants';
+import { parseDateSafe } from '@/lib/dateUtils';
 
 // Helper to get today's month string "YYYY-MM"
 const getCurrentMonthStr = () => {
@@ -132,7 +133,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
-    const dateObj = new Date(t.date);
+    const dateObj = parseDateSafe(t.date) || new Date();
     const monthStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
 
     setState(prev => {
@@ -155,9 +156,8 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addDebt = (d: Omit<Debt, 'id'>) => {
-    // If it's an installment debt, we need to create multiple debts for future months
     const dateStr = d.purchaseDate || d.dueDate || new Date().toISOString();
-    const dateObj = new Date(dateStr);
+    const dateObj = parseDateSafe(dateStr) || new Date();
 
     setState(prev => {
         let newCycles = [...prev.cycles];
@@ -170,14 +170,13 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
             const monthStr = `${installmentDate.getFullYear()}-${String(installmentDate.getMonth() + 1).padStart(2, '0')}`;
 
             // Due date adjustment? Assuming same day of month.
-            const dueDateObj = new Date(d.dueDate);
+            const dueDateObj = parseDateSafe(d.dueDate) || new Date();
             dueDateObj.setMonth(dueDateObj.getMonth() + i);
             const dueDateStr = dueDateObj.toISOString().split('T')[0];
 
             newCycles = ensureCyclesForMonth(newCycles, monthStr);
 
             const currentInstallment = d.currentInstallment + i;
-            // Should we add only if currentInstallment <= totalInstallments? Yes.
             if (currentInstallment > d.totalInstallments) break;
 
             // Create debt for this month
@@ -190,7 +189,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
                     dueDate: dueDateStr,
                     currentInstallment: currentInstallment,
                     isPaid: false,
-                    needsReview: i === 0 ? (d.needsReview ?? false) : false // Only flag first one if needed? Or none?
+                    needsReview: i === 0 ? (d.needsReview ?? false) : false
                 });
             }
         }
@@ -201,7 +200,8 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   
   const addProjectedDebt = (d: Omit<Debt, 'id'>) => {
       const { salaryDay, advanceDay, hasAdvance } = state.settings;
-      const debtDate = new Date(d.purchaseDate || d.dueDate);
+      const debtDateStr = d.purchaseDate || d.dueDate;
+      const debtDate = parseDateSafe(debtDateStr) || new Date();
       const debtDay = debtDate.getDate();
 
       let targetCycle: 'day_05' | 'day_20' = 'day_05';
@@ -334,7 +334,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
         const currentMonthName = MONTHS_FULL[new Date().getMonth()];
 
         transactions.forEach(t => {
-            const dateObj = new Date(t.date);
+            const dateObj = parseDateSafe(t.date) || new Date();
             const monthStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
 
             newCycles = ensureCyclesForMonth(newCycles, monthStr);
@@ -364,11 +364,6 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
                 } else {
                     const isInst = !!t.installments;
                     const finalName = t.sender ? t.sender : t.description;
-
-                    // Handle installments in import (simplified: create just one, or loop?)
-                    // For massive import, if "installments" detected, we might need logic.
-                    // But imported transactions usually represent ONE charge (e.g. 1/10).
-                    // So we treat it as single record. The 'total' in installments object suggests tracking.
 
                     newCycles[idx].debts.push({
                         id: uuidv4(), name: finalName,

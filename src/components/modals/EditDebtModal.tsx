@@ -149,15 +149,22 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                     <Button variant="ghost" size="sm" onClick={onClose}><X className="h-4 w-4" /></Button>
                 </CardHeader>
                 <CardContent className="space-y-4 pt-4">
-                    {/* Row 1: Name | Total */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="col-span-1">
+                    {/* Layout matches New Entry Card */}
+
+                    {/* Row 1: Name | Total (Auto/Blocked if installment) */}
+                    <div className="flex flex-col md:flex-row gap-3 items-end">
+                        <div className="w-full">
                             <Label className="text-xs font-bold text-slate-500 mb-1 block">DESCRIÇÃO</Label>
                             <Input value={name} onChange={e => setName(e.target.value)} placeholder="Nome" />
                         </div>
-                        <div className="col-span-1">
-                            <Label className="text-[10px] font-bold text-slate-500 mb-1 block">TOTAL</Label>
-                            <Input value={amount} onChange={handleMoneyChange(setAmount)} className="font-bold text-slate-700" disabled={isInstallment} />
+                        <div className="w-full md:w-40">
+                            <Label className="text-xs font-bold text-slate-500 mb-1 block">TOTAL</Label>
+                            <Input
+                                value={amount}
+                                onChange={handleMoneyChange(setAmount)}
+                                className={`font-bold text-slate-700 ${isInstallment ? 'bg-slate-100' : ''}`}
+                                disabled={isInstallment}
+                            />
                         </div>
                     </div>
 
@@ -180,13 +187,32 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                     {/* Row 3: Toggles */}
                     <div className="flex flex-wrap items-center gap-4 bg-slate-50 p-2 rounded border">
                         <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
-                            <input type="checkbox" checked={isFixed} onChange={e => { setIsFixed(e.target.checked); if (e.target.checked) setIsInstallment(false); }} className="w-4 h-4 accent-blue-600" /> Fixa?
+                            <input
+                                type="checkbox"
+                                checked={isFixed}
+                                onChange={e => {
+                                    setIsFixed(e.target.checked);
+                                    if (e.target.checked) setIsInstallment(false);
+                                }}
+                                className="w-4 h-4 accent-blue-600"
+                            />
+                            Fixa?
                         </label>
+
                         {type === 'debt' && (
                             <>
                                 <div className="w-px h-4 bg-slate-300"></div>
                                 <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
-                                    <input type="checkbox" checked={isInstallment} onChange={e => { setIsInstallment(e.target.checked); if (e.target.checked) setIsFixed(false); }} className="w-4 h-4 accent-blue-600" /> Parcelada?
+                                    <input
+                                        type="checkbox"
+                                        checked={isInstallment}
+                                        onChange={e => {
+                                            setIsInstallment(e.target.checked);
+                                            if (e.target.checked) setIsFixed(false);
+                                        }}
+                                        className="w-4 h-4 accent-blue-600"
+                                    />
+                                    Parcelada?
                                 </label>
                             </>
                         )}
@@ -215,9 +241,9 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                         </div>
                     )}
 
-                    {/* Conditional Installment Row */}
+                    {/* Conditional Installment Row: Qtd Parc | Valor Parc | 1a Fatura */}
                     {isInstallment && (
-                        <div className="grid grid-cols-3 gap-2 bg-blue-50 p-2 rounded">
+                        <div className="grid grid-cols-3 gap-2 bg-blue-50 p-2 rounded animate-in slide-in-from-top-2">
                             <div>
                                 <Label className="text-[10px] font-bold text-slate-500 mb-1 block">QTD PARC.</Label>
                                 <Input type="number" value={instCount} onChange={e => setInstCount(e.target.value)} className="h-8 text-xs bg-white" />
@@ -227,8 +253,10 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                                 <Input value={instVal} onChange={handleMoneyChange(setInstVal)} className="h-8 text-xs bg-white font-bold" />
                             </div>
                             <div>
-                                <Label className="text-[10px] font-bold text-slate-500 mb-1 block">ATUAL</Label>
-                                <Input type="number" value={currentInst} onChange={e => setCurrentInst(e.target.value)} className="h-8 text-xs bg-white" />
+                                <Label className="text-[10px] font-bold text-slate-500 mb-1 block">1ª FATURA</Label>
+                                <select className="h-8 w-full text-xs border rounded bg-white px-1" value={billingMonth} onChange={e => setBillingMonth(e.target.value)}>
+                                    {MONTHS_FULL.map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
                             </div>
                         </div>
                     )}
