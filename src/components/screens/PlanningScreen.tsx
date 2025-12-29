@@ -7,13 +7,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatCurrencyBRL, parseMoney, formatMoney } from '@/lib/utils';
-import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimize2, ChevronDown, ChevronUp, HelpCircle, ChevronLeft, ChevronRight, TriangleAlert, Flame } from 'lucide-react';
+import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimize2, ChevronDown, ChevronUp, HelpCircle, ChevronLeft, ChevronRight, TriangleAlert, Flame, Check, AlertTriangle, Upload, Download, RotateCcw, Eye, EyeOff, Square } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { UniversalImporter } from '@/components/UniversalImporter';
+import { EditDebtModal } from '@/components/modals/EditDebtModal'; // Import Component
+// import { isOverdue } from '@/lib/dateUtils'; // Use local overdue logic for now if import fails or conflicts, merging logic carefully.
 
-// Funções de máscara de valor (idênticas às de AddTransactionModal)
+// Funções de máscara de valor
 const handleAmountChange = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value.replace(/\D/g, '');
     if (!rawValue) {
@@ -32,9 +35,11 @@ const parseAmount = (formattedAmount: string): number => {
 };
 
 // --- COMPONENTE CICLO (Card de Estatísticas) ---
-const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, onEditDebt, onEditInc, onDeleteDebt, onDeleteInc, onMove, categories, isProjection, showPaymentControl, onTogglePaid }: any) => {
+const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, onEditDebt, onEditInc, onDeleteDebt, onDeleteInc, onMove, categories, isProjection, showPaymentControl, onTogglePaid, onToggleDebt, onToggleInc }: any) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [drillCategory, setDrillCategory] = useState<string | null>(null);
+    const [minimizeIncomes, setMinimizeIncomes] = useState(false);
+    const [minimizeExpenses, setMinimizeExpenses] = useState(false);
 
     const toggleExpand = () => setIsExpanded(!isExpanded);
     
@@ -43,11 +48,21 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
         else setDrillCategory(entry.name === drillCategory ? null : entry.name);
     };
 
+    const handleMinimize = (section: 'incomes' | 'expenses') => {
+        if (section === 'incomes') {
+            setMinimizeIncomes(!minimizeIncomes);
+            if (!minimizeIncomes) setMinimizeExpenses(false); // Open the other
+        } else {
+            setMinimizeExpenses(!minimizeExpenses);
+            if (!minimizeExpenses) setMinimizeIncomes(false);
+        }
+    };
+
     const getCatColor = (catName: string) => categories.find((c: any) => c.name === catName)?.color || '#94a3b8';
 
     // Filtra itens se houver categoria selecionada no gráfico
     const filteredItems = useMemo(() => {
-        let list = items;
+        let list = items || [];
         if (drillCategory) list = list.filter((it: any) => (it.category || 'Outros') === drillCategory);
         // Ordena por data
         return list.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
@@ -58,15 +73,43 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
     // Determines if we should show controls: Not projection OR explicitly shown
     const showControls = !isProjection || showPaymentControl;
 
+    // Calculate Overdue Count
+    const overdueCount = useMemo(() => {
+        // Simple logic for overdue check
+        const todayStr = new Date().toISOString().split('T')[0];
+        return filteredItems.filter((it: any) => !it.isPaid && it.dueDate < todayStr).length;
+    }, [filteredItems]);
+
+    // PAID Checkbox Component (from master)
+    const PaidCheckbox = ({ checked, onClick }: { checked: boolean, onClick: () => void }) => {
+        if (checked) {
+            return (
+                <div onClick={onClick} className="cursor-pointer bg-green-100 text-green-700 px-2 py-0.5 rounded text-[10px] font-bold border border-green-200 flex items-center gap-1 hover:bg-green-200 transition-colors">
+                    PAGO <Check className="h-3 w-3"/>
+                </div>
+            );
+        }
+        return (
+            <Square onClick={onClick} className="h-5 w-5 text-slate-300 cursor-pointer hover:text-slate-500 hover:fill-slate-100 transition-colors" />
+        );
+    };
+
     return (
         <div className={`rounded-xl border p-4 ${colorClass} transition-all duration-500 ease-in-out relative flex flex-col ${isExpanded ? 'h-auto min-h-[500px] shadow-lg ring-1 ring-black/5' : 'h-48 hover:shadow-md'}`}>
             <div className="flex justify-between items-start mb-2 shrink-0">
                 <div className="z-10">
                     <h3 className="text-xs font-black uppercase opacity-70 tracking-widest">{title}</h3>
                     <div className={`text-2xl font-bold mt-1 ${stats.bal >= 0 ? 'text-slate-800' : 'text-red-600'}`}>{formatCurrencyBRL(stats.bal)}</div>
-                    <div className="flex gap-2 text-xs mt-1 opacity-80">
-                        <span className="text-green-700 font-bold">+{formatCurrencyBRL(stats.inc)}</span>
-                        <span className="text-red-600 font-bold">-{formatCurrencyBRL(stats.exp)}</span>
+                    <div className="flex flex-col gap-1 mt-1">
+                        <div className="flex gap-2 text-xs opacity-80">
+                            <span className="text-green-700 font-bold">+{formatCurrencyBRL(stats.inc)}</span>
+                            <span className="text-red-600 font-bold">-{formatCurrencyBRL(stats.exp)}</span>
+                        </div>
+                        {overdueCount > 0 && (
+                            <div className="flex items-center gap-1 text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full w-fit font-bold border border-red-200 animate-in fade-in slide-in-from-left-2">
+                                <AlertTriangle className="h-3 w-3" /> {overdueCount} contas vencidas
+                            </div>
+                        )}
                     </div>
                 </div>
                 <button onClick={toggleExpand} className="absolute top-3 right-3 p-1 rounded-full bg-white/50 hover:bg-white text-slate-500 z-20">
@@ -74,13 +117,13 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                 </button>
                 
                 {/* GRÁFICO */}
-                <div className={`absolute right-2 top-6 transition-all duration-500 ${isExpanded ? 'relative h-40 w-full right-0 top-0 mb-4' : 'h-24 w-24 opacity-90'}`}>
+                <div className={`transition-all duration-500 ${isExpanded ? 'mt-4 h-64 w-full relative' : 'absolute right-2 top-6 h-24 w-24 opacity-90'}`}>
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie 
                                 data={stats.chartData} 
-                                innerRadius={isExpanded ? 40 : 25} 
-                                outerRadius={isExpanded ? 70 : 40} 
+                                innerRadius={isExpanded ? 60 : 25}
+                                outerRadius={isExpanded ? 100 : 40}
                                 dataKey="value" 
                                 paddingAngle={4} 
                                 onClick={handleChartClick} 
@@ -89,7 +132,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                 {stats.chartData.map((e: any, i: number) => <Cell key={i} fill={getCatColor(e.name)} stroke="none" />)}
                             </Pie>
                             {isExpanded && <Tooltip formatter={(v: number) => formatCurrencyBRL(v)} contentStyle={{borderRadius:'8px', fontSize:'12px'}} />}
-                            {isExpanded && <Legend verticalAlign="bottom" height={36} iconSize={8} wrapperStyle={{fontSize:'10px'}}/>}
+                            {isExpanded && <Legend verticalAlign="bottom" layout="horizontal" iconSize={8} wrapperStyle={{fontSize:'10px', paddingTop: '10px'}}/>}
                         </PieChart>
                     </ResponsiveContainer>
                 </div>
@@ -99,7 +142,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 
             {/* ÁREA EXPANDIDA (DETALHES) */}
             {isExpanded && (
-                <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in slide-in-from-top-2">
+                <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in slide-in-from-top-2 mt-4">
                     
                     {/* INFO DA CATEGORIA SELECIONADA */}
                     {drillCategory && activeSlice && (
@@ -118,75 +161,106 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 
                     {/* LISTA DE RENDAS */}
                     {incomes && incomes.length > 0 && !drillCategory && (
-                        <div className="mb-4">
-                            <h4 className="text-[10px] font-bold text-green-700 uppercase mb-2 border-b border-green-100 pb-1">Entradas</h4>
-                            <div className="space-y-1">
-                                {incomes.map((inc: any) => (
-                                    <div key={inc.id} className="flex justify-between items-center bg-green-50/50 p-2 rounded border border-green-100/50 text-xs">
-                                        <div className="flex items-center gap-2">
-                                            {inc.needsReview && <TriangleAlert className="h-3 w-3 text-yellow-500" />}
-                                            <span className="font-medium text-green-900">{inc.description}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-bold text-green-700">{formatCurrencyBRL(inc.amount)}</span>
-                                            {showControls && (
-                                                <div className="flex gap-1">
-                                                    <Pencil className="h-3 w-3 text-blue-400 cursor-pointer" onClick={() => onEditInc(inc)} />
-                                                    <Trash2 className="h-3 w-3 text-red-400 cursor-pointer" onClick={() => onDeleteInc(inc.id)} />
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
+                        <div className="mb-4 transition-all">
+                            <div className="flex justify-between items-center border-b border-green-100 pb-1 mb-2">
+                                <h4 className="text-[10px] font-bold text-green-700 uppercase">Entradas</h4>
+                                <button onClick={() => handleMinimize('incomes')} className="text-slate-400 hover:text-blue-500">
+                                    {minimizeIncomes ? <EyeOff className="h-3 w-3"/> : <Eye className="h-3 w-3"/>}
+                                </button>
                             </div>
+
+                            {!minimizeIncomes && (
+                                <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
+                                    {incomes.map((inc: any) => (
+                                        <div key={inc.id} className={`flex justify-between items-center bg-green-50/50 p-2 rounded border border-green-100/50 text-xs ${inc.isPaid ? 'opacity-60' : ''}`}>
+                                            <div className="flex items-center gap-2">
+                                                {/* Checkbox for incomes logic - support from master */}
+                                                {onToggleInc && (
+                                                     <div onClick={() => onToggleInc(inc.id)} className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${inc.isPaid ? 'bg-green-600 border-green-600' : 'bg-white border-green-300'}`}>
+                                                         {inc.isPaid && <Check className="h-3 w-3 text-white" />}
+                                                     </div>
+                                                )}
+                                                {inc.needsReview && <TriangleAlert className="h-3 w-3 text-yellow-500" />}
+                                                <span className={`font-medium text-green-900 ${inc.isPaid ? 'line-through decoration-green-900/50' : ''}`}>{inc.description}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-bold text-green-700">{formatCurrencyBRL(inc.amount)}</span>
+                                                {showControls && (
+                                                    <div className="flex gap-1">
+                                                        <Pencil className="h-3 w-3 text-blue-400 cursor-pointer" onClick={() => onEditInc(inc)} />
+                                                        <Trash2 className="h-3 w-3 text-red-400 cursor-pointer" onClick={() => onDeleteInc(inc.id)} />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 
                     {/* LISTA DE DÍVIDAS */}
                     <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
-                        <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2 border-b pb-1 sticky top-0 bg-inherit">Saídas {drillCategory ? `(${drillCategory})` : ''}</h4>
-                        <div className="space-y-2">
-                            {filteredItems.map((it: any) => {
-                                const todayStr = new Date().toISOString().split('T')[0];
-                                const isOverdue = !it.isPaid && it.dueDate < todayStr;
-                                return (
-                                <div key={it.id} className="bg-white p-2.5 rounded-lg shadow-sm border border-slate-100 text-xs hover:border-slate-300 transition-colors flex justify-between items-start">
-                                    <div className="flex-1">
-                                        <div className="flex items-center gap-1 font-bold text-slate-700">
-                                            {it.needsReview && <TriangleAlert className="h-3 w-3 text-yellow-500" />}
-                                            <span className={it.isPaid ? 'line-through opacity-50' : ''}>{it.name}</span>
-                                            {it.currentDisplay && <span className="text-[10px] font-normal text-slate-400">({it.currentDisplay}/{it.totalInstallments})</span>}
-                                        </div>
-                                        <div className="text-[10px] text-slate-400 mt-0.5 flex gap-2 items-center">
-                                            <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-600 font-bold' : ''}`}>
-                                                {isOverdue && <Flame className="h-3 w-3 fill-red-600" />}
-                                                Venc: {it.dueDate}
-                                            </span>
-                                            <span className="text-[9px] px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCatColor(it.category || 'Outros') }}>{it.category || 'Outros'}</span>
-                                        </div>
-                                    </div>
-                                    <div className="text-right pl-2">
-                                        <div className="font-bold text-red-600">-{formatCurrencyBRL(it.displayVal || it.installmentAmount)}</div>
-                                        {showControls && (
-                                            <div className="flex gap-2 mt-1 justify-end items-center">
-                                                {/* Checkbox Pagar - ONLY for debts */}
-                                                <input
-                                                    type="checkbox"
-                                                    checked={!!it.isPaid}
-                                                    onChange={(e) => onTogglePaid && onTogglePaid(it.id, e.target.checked)}
-                                                    className="w-3.5 h-3.5 accent-emerald-500 rounded cursor-pointer"
-                                                    title="Marcar como Pago"
-                                                />
-                                                <Pencil className="h-3.5 w-3.5 text-slate-400 hover:text-blue-500 cursor-pointer" onClick={() => onEditDebt(it)} />
-                                                <Trash2 className="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer" onClick={() => onDeleteDebt(it.id)} />
-                                                {hasAdvance && <RefreshCw className="h-3.5 w-3.5 text-slate-400 hover:text-orange-500 cursor-pointer" onClick={() => onMove(it.id)} />}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )})}
-                            {filteredItems.length === 0 && <div className="text-center text-xs text-slate-400 py-4">Nenhuma conta encontrada.</div>}
+                        <div className="flex justify-between items-center border-b pb-1 mb-2 sticky top-0 bg-inherit z-10">
+                            <h4 className="text-[10px] font-bold text-slate-500 uppercase">Saídas {drillCategory ? `(${drillCategory})` : ''}</h4>
+                            <button onClick={() => handleMinimize('expenses')} className="text-slate-400 hover:text-blue-500">
+                                {minimizeExpenses ? <EyeOff className="h-3 w-3"/> : <Eye className="h-3 w-3"/>}
+                            </button>
                         </div>
+
+                        {!minimizeExpenses && (
+                            <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
+                                {filteredItems.map((it: any) => {
+                                    const todayStr = new Date().toISOString().split('T')[0];
+                                    const overdue = !it.isPaid && it.dueDate < todayStr;
+                                    const itemClass = it.isPaid
+                                        ? 'bg-green-50 border-green-200 opacity-60'
+                                        : overdue
+                                            ? 'bg-white border-red-300 ring-1 ring-red-100'
+                                            : 'bg-white border-slate-100';
+
+                                    return (
+                                    <div key={it.id} className={`${itemClass} p-2.5 rounded-lg shadow-sm border text-xs hover:border-slate-300 transition-all flex justify-between items-start`}>
+                                        <div className="flex items-start gap-3 flex-1">
+                                            {showControls && (onTogglePaid || onToggleDebt) && (
+                                                <div className="mt-0.5">
+                                                    {/* Use onTogglePaid (my feature) or onToggleDebt (master feature), preferring my unified handler if present */}
+                                                    <PaidCheckbox checked={!!it.isPaid} onClick={() => {
+                                                        if (onTogglePaid) onTogglePaid(it.id, !it.isPaid);
+                                                        else if (onToggleDebt) onToggleDebt(it.id);
+                                                    }} />
+                                                </div>
+                                            )}
+                                            <div>
+                                                <div className="flex items-center gap-1 font-bold text-slate-700">
+                                                    {it.needsReview && <TriangleAlert className="h-3 w-3 text-yellow-500" />}
+                                                    <span className={it.isPaid ? 'line-through opacity-50' : ''}>{it.name}</span>
+                                                    {it.currentDisplay && <span className="text-[10px] font-normal text-slate-400">({it.currentDisplay}/{it.totalInstallments})</span>}
+                                                </div>
+                                                <div className="text-[10px] text-slate-400 mt-0.5 flex gap-2 items-center flex-wrap">
+                                                    <span className={`flex items-center gap-1 ${overdue && !it.isPaid ? 'text-red-600 font-bold' : ''}`}>
+                                                        Venc: {it.dueDate}
+                                                        {overdue && !it.isPaid && <Flame className="h-3 w-3 fill-red-500 text-red-600 animate-pulse" />}
+                                                    </span>
+                                                    <span className="text-[9px] px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCatColor(it.category || 'Outros') }}>{it.category || 'Outros'}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="text-right pl-2">
+                                            <div className={`font-bold ${it.isPaid ? 'text-green-700 line-through decoration-green-700/50' : 'text-red-600'}`}>-{formatCurrencyBRL(it.displayVal || it.installmentAmount)}</div>
+                                            {showControls && (
+                                                <div className="flex gap-2 mt-1 justify-end items-center">
+                                                    <Pencil className="h-3.5 w-3.5 text-slate-400 hover:text-blue-500 cursor-pointer" onClick={() => onEditDebt(it)} />
+                                                    <Trash2 className="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer" onClick={() => onDeleteDebt(it.id)} />
+                                                    {hasAdvance && <RefreshCw className="h-3.5 w-3.5 text-slate-400 hover:text-orange-500 cursor-pointer" onClick={() => onMove(it.id)} />}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )})}
+                                {filteredItems.length === 0 && <div className="text-center text-xs text-slate-400 py-4">Nenhuma conta encontrada.</div>}
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -195,10 +269,15 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 };
 
 export const PlanningScreen = () => {
-    const { state, updateSettings, addCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, deleteDebt, updateDebt, switchCycle, clearDatabase, setViewDate } = useFinancials();
+    // Merge context from both
+    const { state, updateSettings, addCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, deleteDebt, updateDebt, switchCycle, clearDatabase, setViewDate, getCyclesForMonth, toggleDebtStatus, toggleTransactionStatus, addBatchedTransactions } = useFinancials();
 
     const [activeTab, setActiveTab] = useState<'current' | 'projection'>('current');
+
+    // Use viewDate from state (my feature)
+    // Master branch introduced local 'currentDate' for its own navigation. I will unify this to use 'viewDate' from context.
     const [showSettings, setShowSettings] = useState(false);
+    const [showImporter, setShowImporter] = useState(false);
     const [showHelpModal, setShowHelpModal] = useState(false);
     const [expandedMonthIndex, setExpandedMonthIndex] = useState<number | null>(null);
     const [expandedSummary, setExpandedSummary] = useState<'incomes' | 'debts' | null>(null);
@@ -255,9 +334,10 @@ export const PlanningScreen = () => {
         setViewDate(new Date().toISOString());
     };
 
-    // Toggle Paid handler
+    // Toggle Paid handler (Adapter for my logic vs master logic)
     const handleTogglePaid = (id: string, isPaid: boolean) => {
-        updateDebt(id, { isPaid });
+        if (toggleDebtStatus) toggleDebtStatus(id);
+        else updateDebt(id, { isPaid });
     };
 
     // Auto-cálculo parcelas
@@ -289,6 +369,7 @@ export const PlanningScreen = () => {
     useEffect(() => {
         const handleBackPress = () => {
             if (showSettings) setShowSettings(false);
+            if (showImporter) setShowImporter(false);
             if (showHelpModal) setShowHelpModal(false);
         };
 
@@ -297,7 +378,41 @@ export const PlanningScreen = () => {
         return () => {
             window.removeEventListener('popstate', handleBackPress);
         };
-    }, [showSettings, showHelpModal]);
+    }, [showSettings, showImporter, showHelpModal]);
+
+    // Backup & Restore
+    const handleExportBackup = () => {
+        const dataStr = JSON.stringify(state);
+        const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+        const exportFileDefaultName = `backup-financeiro-${new Date().toISOString().split('T')[0]}.json`;
+        const linkElement = document.createElement('a');
+        linkElement.setAttribute('href', dataUri);
+        linkElement.setAttribute('download', exportFileDefaultName);
+        linkElement.click();
+    };
+
+    const handleImportBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const fileReader = new FileReader();
+        if (event.target.files && event.target.files.length > 0) {
+            fileReader.readAsText(event.target.files[0], "UTF-8");
+            fileReader.onload = (e) => {
+                if (e.target?.result) {
+                    try {
+                        const parsed = JSON.parse(e.target.result as string);
+                        // Validate basic structure
+                        if (parsed.cycles && parsed.categories && parsed.settings) {
+                            localStorage.setItem('finance_db_v7', JSON.stringify(parsed));
+                            window.location.reload();
+                        } else {
+                            toast.error("Arquivo de backup inválido.");
+                        }
+                    } catch (error) {
+                        toast.error("Erro ao ler arquivo.");
+                    }
+                }
+            };
+        }
+    };
 
     // Helpers
     const getCycleStats = (debts: Debt[], transactions: any[]) => {
@@ -312,6 +427,7 @@ export const PlanningScreen = () => {
     };
 
     const currentMonthStats = useMemo(() => {
+        if (!state.cycles || state.cycles.length < 2) return { c1: { inc: 0, exp: 0, bal: 0, chartData: [] }, c2: { inc: 0, exp: 0, bal: 0, chartData: [] } };
         const c1 = getCycleStats(state.cycles[0].debts, state.cycles[0].transactions);
         const c2 = getCycleStats(state.cycles[1].debts, state.cycles[1].transactions);
         return { c1, c2 };
@@ -325,6 +441,7 @@ export const PlanningScreen = () => {
     }, [currentMonthStats]);
 
     const monthItems = useMemo(() => {
+        if (!state.cycles || state.cycles.length < 2) return { incomes: [], debts: [] };
         const incomes = [...state.cycles[0].transactions, ...state.cycles[1].transactions];
         // Only show active debts in the list
         const debts = [...state.cycles[0].debts, ...state.cycles[1].debts].filter(d => d.currentInstallment >= 1);
@@ -332,9 +449,9 @@ export const PlanningScreen = () => {
     }, [state.cycles]);
 
     const projectionData = useMemo(() => {
+        if (!state.cycles || state.cycles.length < 2) return [];
         const arr = [];
         const viewDate = state.viewDate ? new Date(state.viewDate) : new Date();
-        // Ensure we start from the viewDate, but logic for "diff" depends on current real month vs projection month
         const todayReal = new Date();
 
         const allDebts = [...state.cycles[0].debts, ...state.cycles[1].debts];
@@ -354,14 +471,10 @@ export const PlanningScreen = () => {
                 let val = d.installmentAmount;
                 let curr = 0;
 
-                // Keep showing debt if it's not paid yet, even if in past (logic simplification) or if it projects into this month
-
                 if (d.isFixed) { active = true; }
                 else {
                     const mIdx = MONTHS_FULL.indexOf(d.billingMonth || '');
                     if (mIdx !== -1) {
-                        // Logic to find if this debt installment falls in fDate
-
                         // Simplified projection logic:
                         // Calculate offset of fDate from the debt's current status (which is basically 'now').
 
@@ -436,19 +549,15 @@ export const PlanningScreen = () => {
     const openEditDebt = (d: Debt) => { setEditingItem({ ...d }); setEditType('debt'); setIsEditModalOpen(true); }
     const openEditInc = (t: Transaction) => { setEditingItem({ ...t }); setEditType('income'); setIsEditModalOpen(true); }
 
-    const saveEdit = () => {
-        if (!editingItem) return;
-
-        if (editType === 'debt' && 'installmentAmount' in editingItem) {
-            const parsedAmount = parseAmount(String(editingItem.installmentAmount));
-            const itemToSave = { ...editingItem, installmentAmount: parsedAmount };
-            updateDebt(itemToSave.id, itemToSave);
-        } else if (editType === 'income' && 'amount' in editingItem) {
-            const parsedAmount = parseAmount(String(editingItem.amount));
-            const itemToSave = { ...editingItem, amount: parsedAmount };
-            updateTransaction(itemToSave.id, itemToSave);
+    const saveEdit = (updated: any) => {
+        // Handle updated logic from master
+        if (updated && 'id' in updated) {
+             if (editType === 'debt') {
+                updateDebt(updated.id, updated);
+            } else {
+                updateTransaction(updated.id, updated);
+            }
         }
-
         setIsEditModalOpen(false); 
         setEditingItem(null); 
         toast.success("Salvo");
@@ -463,9 +572,6 @@ export const PlanningScreen = () => {
             const today = new Date();
             const diffMonths = (dateObj.getFullYear() - today.getFullYear()) * 12 + (dateObj.getMonth() - today.getMonth());
 
-            // If the debt is for a future month (diff > 0), the current installment (relative to today) should be <= 0.
-            // Formula: currentInstallment_today + diff = 1 (we want it to be the 1st installment on dateObj)
-            // So: currentInstallment_today = 1 - diff
             const initialInstallment = 1 - diffMonths;
 
             addDebt({
@@ -507,7 +613,16 @@ export const PlanningScreen = () => {
     return (
         <div className="space-y-6 pb-24 relative">
             {/* Header / Tabs */}
-            <div className="flex justify-center relative mb-6">
+            <div className="flex flex-col items-center gap-4 relative mb-6">
+                 {/* Navigation Month */}
+                 <div className="flex items-center gap-4 bg-white p-2 rounded-xl shadow-sm border">
+                    <Button variant="ghost" size="icon" onClick={prevMonth}><ChevronLeft className="h-5 w-5 text-slate-600" /></Button>
+                    <button onClick={resetToToday} className="text-center w-40 font-bold text-lg capitalize text-slate-700 hover:text-blue-600 transition-colors">
+                        {format(state.viewDate ? new Date(state.viewDate) : new Date(), 'MMMM yyyy', { locale: ptBR })}
+                    </button>
+                    <Button variant="ghost" size="icon" onClick={nextMonth}><ChevronRight className="h-5 w-5 text-slate-600" /></Button>
+                 </div>
+
                 <div className="bg-slate-200 p-1 rounded-full flex gap-1 shadow-inner">
                     <button onClick={() => setActiveTab('current')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'current' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}`}>Mês Atual</button>
                     <button onClick={() => setActiveTab('projection')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'projection' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}`}>Projeção</button>
@@ -518,6 +633,9 @@ export const PlanningScreen = () => {
                 </div>
             </div>
 
+            {/* Importer Modal */}
+            {showImporter && <UniversalImporter onImport={(items) => { addBatchedTransactions(items); toast.success(`${items.length} itens importados!`); }} onClose={() => setShowImporter(false)} />}
+
             {/* Configurações Modal */}
             {showSettings && (
                 <div onClick={() => setShowSettings(false)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in-50">
@@ -527,6 +645,22 @@ export const PlanningScreen = () => {
                             <Button variant="ghost" size="sm" onClick={() => setShowSettings(false)}><X /></Button>
                         </CardHeader>
                         <CardContent className="space-y-6">
+                            {/* BACKUP SECTION */}
+                            <div className="border-b pb-4">
+                                <Label className="mb-2 block">Backup & Segurança</Label>
+                                <div className="flex gap-2">
+                                    <Button variant="outline" size="sm" onClick={handleExportBackup} className="flex-1 text-slate-700">
+                                        <Download className="h-4 w-4 mr-2"/> Exportar Backup
+                                    </Button>
+                                    <div className="flex-1 relative">
+                                        <input type="file" accept=".json" onChange={handleImportBackup} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                        <Button variant="outline" size="sm" className="w-full text-slate-700">
+                                            <RotateCcw className="h-4 w-4 mr-2"/> Restaurar Backup
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b pb-4">
                                 <div><Label>Dia Salário</Label><Input type="number" value={confSal} onChange={e => setConfSal(Number(e.target.value))} /></div>
                                 {hasAdv && <div><Label>Dia Vale</Label><Input type="number" value={confAdv} onChange={e => setConfAdv(Number(e.target.value))} /></div>}
@@ -562,66 +696,45 @@ export const PlanningScreen = () => {
                 </div>
             )}
 
-            {/* Edit Modal */}
-            {isEditModalOpen && editingItem && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <Card className="w-full max-w-md bg-white shadow-2xl animate-in zoom-in-95">
-                        <CardHeader className="flex flex-row justify-between pb-2">
-                            <CardTitle>Editar {editType === 'debt' ? 'Conta' : 'Renda'}</CardTitle>
-                            <Button variant="ghost" size="sm" onClick={() => setIsEditModalOpen(false)}><X /></Button>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            {editType === 'debt' ? (
-                                <>
-                                    <Input value={(editingItem as Debt).name} onChange={e => setEditingItem({ ...editingItem, name: e.target.value })} placeholder="Nome da Dívida" />
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <Input type="text" inputMode="decimal" value={(editingItem as Debt).installmentAmount as any} onChange={handleEditItemAmountChange} />
-                                        <select className="border rounded px-2" value={editingItem.category} onChange={e => setEditingItem({ ...editingItem, category: e.target.value })}>{state.categories.filter(c => c.type === 'expense').map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2"><div><Label className="text-[10px]">Compra</Label><Input type="date" value={(editingItem as Debt).purchaseDate} onChange={e => setEditingItem({ ...editingItem, purchaseDate: e.target.value })} /></div><div><Label className="text-[10px]">Vencimento</Label><Input value={(editingItem as Debt).dueDate} onChange={e => setEditingItem({ ...editingItem, dueDate: e.target.value })} /></div></div>
-                                    <div className="grid grid-cols-2 gap-2"><div><Label className="text-[10px]">Ciclo</Label><select className="w-full border rounded px-2 h-10 text-sm" value={editingItem.cycle} onChange={e => setEditingItem({ ...editingItem, cycle: e.target.value as any })}><option value="day_05">Dia {state.settings.salaryDay}</option>{state.settings.hasAdvance && <option value="day_20">Dia {state.settings.advanceDay}</option>}</select></div><div><Label className="text-[10px]">Método</Label><select className="w-full border rounded px-2 h-10 text-sm" value={(editingItem as Debt).paymentMethod} onChange={e => setEditingItem({ ...editingItem, paymentMethod: e.target.value })}><option value="Cartão">Cartão</option><option value="Pix">Pix</option><option value="Boleto">Boleto</option></select></div></div>
-                                </>
-                            ) : (
-                                <>
-                                    <Input value={(editingItem as Transaction).description} onChange={e => setEditingItem({ ...editingItem, description: e.target.value })} placeholder="Descrição da Renda" />
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <Input type="text" inputMode="decimal" value={(editingItem as Transaction).amount as any} onChange={handleEditItemAmountChange} />
-                                    </div>
-                                    <div className="flex items-center gap-2 mt-2">
-                                        <input type="checkbox" checked={editingItem.isFixed} onChange={e => setEditingItem({ ...editingItem, isFixed: e.target.checked })} className="accent-green-600" />
-                                        <span className="text-sm">Renda Fixa?</span>
-                                    </div>
-                                </>
-                            )}
-                            <Button className="w-full bg-blue-600 mt-2" onClick={saveEdit}>Salvar Alterações</Button>
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
+            {/* Edit Modal (Replaces inline modal) */}
+            <EditDebtModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} item={editingItem} type={editType} onSave={saveEdit} />
 
             {/* TAB: MÊS ATUAL */}
             {activeTab === 'current' && (
                 <div className="space-y-6 animate-in fade-in">
                     <div className={`grid grid-cols-1 ${state.settings.hasAdvance ? 'md:grid-cols-2' : ''} gap-4`}>
-                        <CycleSection
-                            title={`Ciclo ${state.settings.salaryDay}`} stats={currentMonthStats.c1}
-                            items={state.cycles[0].debts.filter(d => d.currentInstallment >= 1)}
-                            incomes={state.cycles[0].transactions}
-                            colorClass="bg-blue-50 border-blue-100" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories}
-                            onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
-                        />
-                        {state.settings.hasAdvance && <CycleSection
-                            title={`Ciclo ${state.settings.advanceDay}`} stats={currentMonthStats.c2}
-                            items={state.cycles[1].debts.filter(d => d.currentInstallment >= 1)}
-                            incomes={state.cycles[1].transactions}
-                            colorClass="bg-emerald-50 border-emerald-100" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories}
-                            onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
-                        />}
+                        {state.cycles.length >= 2 && (
+                            <>
+                                <CycleSection
+                                    title={`Ciclo ${state.settings.salaryDay}`} stats={currentMonthStats.c1}
+                                    items={state.cycles[0].debts.filter(d => d.currentInstallment >= 1)}
+                                    incomes={state.cycles[0].transactions}
+                                    colorClass="bg-blue-50 border-blue-100" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories}
+                                    onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
+                                    onTogglePaid={handleTogglePaid}
+                                />
+                                {state.settings.hasAdvance && <CycleSection
+                                    title={`Ciclo ${state.settings.advanceDay}`} stats={currentMonthStats.c2}
+                                    items={state.cycles[1].debts.filter(d => d.currentInstallment >= 1)}
+                                    incomes={state.cycles[1].transactions}
+                                    colorClass="bg-emerald-50 border-emerald-100" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories}
+                                    onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
+                                    onTogglePaid={handleTogglePaid}
+                                />}
+                            </>
+                        )}
                     </div>
 
                     <Card className="border-t-4 border-t-slate-800 shadow-sm">
                         <CardHeader className="pb-2"><CardTitle className="text-base uppercase tracking-wide text-slate-600">Novo Lançamento</CardTitle></CardHeader>
                         <CardContent className="space-y-6">
+                            {/* BOTÃO DE IMPORTAÇÃO ESTRATÉGICO */}
+                            <div className="flex justify-center -mt-2 mb-2">
+                                <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50 w-full md:w-auto" onClick={() => setShowImporter(true)}>
+                                    <Upload className="h-4 w-4 mr-2"/> Importação Massiva
+                                </Button>
+                            </div>
+
                             <div className="p-4 bg-green-50 rounded-lg border border-green-100 transition-all hover:shadow-sm">
                                 <div className="flex flex-col md:flex-row gap-3 items-end">
                                     <div className="w-full"><Label className="text-xs text-green-800 font-bold mb-1 block">DESCRIÇÃO RENDA</Label><Input placeholder="Ex: Salário" value={incomeName} onChange={e => setIncomeName(e.target.value)} className="bg-white border-green-200 focus:border-green-500" /></div>

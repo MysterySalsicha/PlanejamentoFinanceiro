@@ -9,6 +9,7 @@ export interface Transaction {
     date: string;
     isFixed?: boolean;
     cycle: 'day_05' | 'day_20';
+    isPaid?: boolean;
     needsReview?: boolean;
 }
   
@@ -20,6 +21,7 @@ export interface Debt {
     paidAmount?: number;
     dueDate: string;
     purchaseDate?: string;
+    paymentDate?: string; // ISO String
     currentInstallment: number;
     totalInstallments: number;
     isFixed?: boolean;
@@ -40,6 +42,7 @@ export interface Category {
   
 export interface FinancialCycle {
     id: string;
+    month: string; // Format: YYYY-MM
     type: 'day_05' | 'day_20';
     transactions: Transaction[];
     debts: Debt[];
@@ -56,8 +59,8 @@ export interface FinancialState {
     cycles: FinancialCycle[];
     categories: Category[];
     settings: UserSettings;
-    categoryMappings: Record<string, string>; // NOVO: Memória de Categorias
-    viewDate?: string;
+    categoryMappings: Record<string, string>;
+    viewDate?: string; // Format: ISO String or YYYY-MM depending on usage, sticking to my impl (ISO) for now but respecting user adding it
 }
 
 export interface ImportedTransaction {
@@ -70,4 +73,5 @@ export interface ImportedTransaction {
     category: string;
     installments?: { current: number, total: number };
     isDuplicate?: boolean;
+    needsReview?: boolean;
 }
