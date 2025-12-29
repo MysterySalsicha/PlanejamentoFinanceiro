@@ -7,12 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatCurrencyBRL, parseMoney, formatMoney } from '@/lib/utils';
-import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimize2, ChevronDown, ChevronUp, HelpCircle, ChevronLeft, ChevronRight, Check, AlertTriangle, Flame, Upload, Download, RotateCcw } from 'lucide-react';
+import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimize2, ChevronDown, ChevronUp, HelpCircle, ChevronLeft, ChevronRight, Check, AlertTriangle, Flame, Upload, Download, RotateCcw, Eye, EyeOff, Square } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { toast } from 'sonner';
-import { UniversalImporter } from '@/components/UniversalImporter'; // Import Importer
+import { UniversalImporter } from '@/components/UniversalImporter';
 
-// Funções de máscara de valor (idênticas às de AddTransactionModal)
+// Funções de máscara de valor
 const handleAmountChange = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value.replace(/\D/g, '');
     if (!rawValue) {
@@ -34,12 +34,24 @@ const parseAmount = (formattedAmount: string): number => {
 const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, onEditDebt, onEditInc, onDeleteDebt, onDeleteInc, onMove, categories, isProjection, onToggleDebt, onToggleInc }: any) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [drillCategory, setDrillCategory] = useState<string | null>(null);
+    const [minimizeIncomes, setMinimizeIncomes] = useState(false);
+    const [minimizeExpenses, setMinimizeExpenses] = useState(false);
 
     const toggleExpand = () => setIsExpanded(!isExpanded);
     
     const handleChartClick = (entry: any) => {
         if (!isExpanded) setIsExpanded(true);
         else setDrillCategory(entry.name === drillCategory ? null : entry.name);
+    };
+
+    const handleMinimize = (section: 'incomes' | 'expenses') => {
+        if (section === 'incomes') {
+            setMinimizeIncomes(!minimizeIncomes);
+            if (!minimizeIncomes) setMinimizeExpenses(false); // Open the other
+        } else {
+            setMinimizeExpenses(!minimizeExpenses);
+            if (!minimizeExpenses) setMinimizeIncomes(false);
+        }
     };
 
     const getCatColor = (catName: string) => categories.find((c: any) => c.name === catName)?.color || '#94a3b8';
@@ -54,17 +66,27 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 
     const activeSlice = stats.chartData.find((d: any) => d.name === drillCategory);
 
-    // Helper to check overdue
     const isOverdue = (dueDate: string, isPaid?: boolean) => {
         if (isPaid) return false;
-        // Simple string comparison for YYYY-MM-DD works, but let's be safe
         const today = new Date();
         today.setHours(0,0,0,0);
         const due = new Date(dueDate);
-        due.setHours(0,0,0,0); // Treat due date as end of day? Or start? Usually strict.
-        // Actually, if today > due date, it's overdue.
-        // If today == due date, it's due today (urgent but not late yet).
+        due.setHours(0,0,0,0);
         return today > due;
+    };
+
+    // PAID Checkbox Component
+    const PaidCheckbox = ({ checked, onClick }: { checked: boolean, onClick: () => void }) => {
+        if (checked) {
+            return (
+                <div onClick={onClick} className="cursor-pointer bg-green-100 text-green-700 px-2 py-0.5 rounded text-[10px] font-bold border border-green-200 flex items-center gap-1 hover:bg-green-200 transition-colors">
+                    PAGO <Check className="h-3 w-3"/>
+                </div>
+            );
+        }
+        return (
+            <Square onClick={onClick} className="h-5 w-5 text-slate-300 cursor-pointer hover:text-slate-500 hover:fill-slate-100 transition-colors" />
+        );
     };
 
     return (
@@ -82,14 +104,14 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                     {isExpanded ? <Minimize2 className="h-4 w-4"/> : <Maximize2 className="h-4 w-4"/>}
                 </button>
                 
-                {/* GRÁFICO */}
-                <div className={`absolute right-2 top-6 transition-all duration-500 ${isExpanded ? 'relative h-40 w-full right-0 top-0 mb-4' : 'h-24 w-24 opacity-90'}`}>
+                {/* GRÁFICO FIXED: Relative position, legend below */}
+                <div className={`transition-all duration-500 ${isExpanded ? 'mt-4 h-64 w-full relative' : 'absolute right-2 top-6 h-24 w-24 opacity-90'}`}>
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie 
                                 data={stats.chartData} 
-                                innerRadius={isExpanded ? 40 : 25} 
-                                outerRadius={isExpanded ? 70 : 40} 
+                                innerRadius={isExpanded ? 60 : 25}
+                                outerRadius={isExpanded ? 100 : 40}
                                 dataKey="value" 
                                 paddingAngle={4} 
                                 onClick={handleChartClick} 
@@ -98,7 +120,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                 {stats.chartData.map((e: any, i: number) => <Cell key={i} fill={getCatColor(e.name)} stroke="none" />)}
                             </Pie>
                             {isExpanded && <Tooltip formatter={(v: number) => formatCurrencyBRL(v)} contentStyle={{borderRadius:'8px', fontSize:'12px'}} />}
-                            {isExpanded && <Legend verticalAlign="bottom" height={36} iconSize={8} wrapperStyle={{fontSize:'10px'}}/>}
+                            {isExpanded && <Legend verticalAlign="bottom" layout="horizontal" iconSize={8} wrapperStyle={{fontSize:'10px', paddingTop: '10px'}}/>}
                         </PieChart>
                     </ResponsiveContainer>
                 </div>
@@ -108,7 +130,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 
             {/* ÁREA EXPANDIDA (DETALHES) */}
             {isExpanded && (
-                <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in slide-in-from-top-2">
+                <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in slide-in-from-top-2 mt-4">
                     
                     {/* INFO DA CATEGORIA SELECIONADA */}
                     {drillCategory && activeSlice && (
@@ -127,82 +149,98 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 
                     {/* LISTA DE RENDAS */}
                     {incomes && incomes.length > 0 && !drillCategory && (
-                        <div className="mb-4">
-                            <h4 className="text-[10px] font-bold text-green-700 uppercase mb-2 border-b border-green-100 pb-1">Entradas</h4>
-                            <div className="space-y-1">
-                                {incomes.map((inc: any) => (
-                                    <div key={inc.id} className={`flex justify-between items-center bg-green-50/50 p-2 rounded border border-green-100/50 text-xs ${inc.isPaid ? 'opacity-60' : ''}`}>
-                                        <div className="flex items-center gap-2">
-                                            {!isProjection && (
-                                                 <div onClick={() => onToggleInc(inc.id)} className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${inc.isPaid ? 'bg-green-600 border-green-600' : 'bg-white border-green-300'}`}>
-                                                     {inc.isPaid && <Check className="h-3 w-3 text-white" />}
-                                                 </div>
-                                            )}
-                                            <span className={`font-medium text-green-900 ${inc.isPaid ? 'line-through decoration-green-900/50' : ''}`}>{inc.description}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-bold text-green-700">{formatCurrencyBRL(inc.amount)}</span>
-                                            {!isProjection && (
-                                                <div className="flex gap-1">
-                                                    <Pencil className="h-3 w-3 text-blue-400 cursor-pointer" onClick={() => onEditInc(inc)} />
-                                                    <Trash2 className="h-3 w-3 text-red-400 cursor-pointer" onClick={() => onDeleteInc(inc.id)} />
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
+                        <div className="mb-4 transition-all">
+                            <div className="flex justify-between items-center border-b border-green-100 pb-1 mb-2">
+                                <h4 className="text-[10px] font-bold text-green-700 uppercase">Entradas</h4>
+                                <button onClick={() => handleMinimize('incomes')} className="text-slate-400 hover:text-blue-500">
+                                    {minimizeIncomes ? <EyeOff className="h-3 w-3"/> : <Eye className="h-3 w-3"/>}
+                                </button>
                             </div>
+
+                            {!minimizeIncomes && (
+                                <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
+                                    {incomes.map((inc: any) => (
+                                        <div key={inc.id} className={`flex justify-between items-center bg-green-50/50 p-2 rounded border border-green-100/50 text-xs ${inc.isPaid ? 'opacity-60' : ''}`}>
+                                            <div className="flex items-center gap-2">
+                                                {!isProjection && (
+                                                     <div onClick={() => onToggleInc(inc.id)} className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${inc.isPaid ? 'bg-green-600 border-green-600' : 'bg-white border-green-300'}`}>
+                                                         {inc.isPaid && <Check className="h-3 w-3 text-white" />}
+                                                     </div>
+                                                )}
+                                                <span className={`font-medium text-green-900 ${inc.isPaid ? 'line-through decoration-green-900/50' : ''}`}>{inc.description}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-bold text-green-700">{formatCurrencyBRL(inc.amount)}</span>
+                                                {!isProjection && (
+                                                    <div className="flex gap-1">
+                                                        <Pencil className="h-3 w-3 text-blue-400 cursor-pointer" onClick={() => onEditInc(inc)} />
+                                                        <Trash2 className="h-3 w-3 text-red-400 cursor-pointer" onClick={() => onDeleteInc(inc.id)} />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 
                     {/* LISTA DE DÍVIDAS */}
                     <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
-                        <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2 border-b pb-1 sticky top-0 bg-inherit">Saídas {drillCategory ? `(${drillCategory})` : ''}</h4>
-                        <div className="space-y-2">
-                            {filteredItems.map((it: any) => {
-                                const overdue = isOverdue(it.dueDate, it.isPaid);
-                                const itemClass = it.isPaid
-                                    ? 'bg-green-50 border-green-200 opacity-60'
-                                    : overdue
-                                        ? 'bg-white border-red-300 ring-1 ring-red-100'
-                                        : 'bg-white border-slate-100';
+                        <div className="flex justify-between items-center border-b pb-1 mb-2 sticky top-0 bg-inherit z-10">
+                            <h4 className="text-[10px] font-bold text-slate-500 uppercase">Saídas {drillCategory ? `(${drillCategory})` : ''}</h4>
+                            <button onClick={() => handleMinimize('expenses')} className="text-slate-400 hover:text-blue-500">
+                                {minimizeExpenses ? <EyeOff className="h-3 w-3"/> : <Eye className="h-3 w-3"/>}
+                            </button>
+                        </div>
 
-                                return (
-                                <div key={it.id} className={`${itemClass} p-2.5 rounded-lg shadow-sm border text-xs hover:border-slate-300 transition-all flex justify-between items-start`}>
-                                    <div className="flex items-start gap-2 flex-1">
-                                        {!isProjection && (
-                                            <div onClick={() => onToggleDebt(it.id)} className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors shrink-0 ${it.isPaid ? 'bg-green-600 border-green-600' : 'bg-white border-slate-300 hover:border-blue-400'}`}>
-                                                 {it.isPaid && <Check className="h-3 w-3 text-white" />}
-                                            </div>
-                                        )}
-                                        <div>
-                                            <div className={`font-bold ${it.isPaid ? 'text-green-800 line-through decoration-slate-400' : 'text-slate-700'}`}>
-                                                {it.name} {it.currentDisplay && <span className="text-[10px] font-normal text-slate-400">({it.currentDisplay}/{it.totalInstallments})</span>}
-                                            </div>
-                                            <div className="text-[10px] text-slate-400 mt-0.5 flex gap-2 items-center flex-wrap">
-                                                <span className={`flex items-center gap-1 ${overdue && !it.isPaid ? 'text-red-600 font-bold' : ''}`}>
-                                                    Venc: {it.dueDate}
-                                                    {overdue && !it.isPaid && <Flame className="h-3 w-3 fill-red-500 text-red-600 animate-pulse" />}
-                                                </span>
-                                                <span className="text-[9px] px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCatColor(it.category || 'Outros') }}>{it.category || 'Outros'}</span>
-                                                {it.needsReview && <span className="flex items-center gap-1 text-[9px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-200"><AlertTriangle className="h-3 w-3"/> Revisar</span>}
+                        {!minimizeExpenses && (
+                            <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
+                                {filteredItems.map((it: any) => {
+                                    const overdue = isOverdue(it.dueDate, it.isPaid);
+                                    const itemClass = it.isPaid
+                                        ? 'bg-green-50 border-green-200 opacity-60'
+                                        : overdue
+                                            ? 'bg-white border-red-300 ring-1 ring-red-100'
+                                            : 'bg-white border-slate-100';
+
+                                    return (
+                                    <div key={it.id} className={`${itemClass} p-2.5 rounded-lg shadow-sm border text-xs hover:border-slate-300 transition-all flex justify-between items-start`}>
+                                        <div className="flex items-start gap-3 flex-1">
+                                            {!isProjection && (
+                                                <div className="mt-0.5">
+                                                    <PaidCheckbox checked={it.isPaid} onClick={() => onToggleDebt(it.id)} />
+                                                </div>
+                                            )}
+                                            <div>
+                                                <div className={`font-bold ${it.isPaid ? 'text-green-800 line-through decoration-slate-400' : 'text-slate-700'}`}>
+                                                    {it.name} {it.currentDisplay && <span className="text-[10px] font-normal text-slate-400">({it.currentDisplay}/{it.totalInstallments})</span>}
+                                                </div>
+                                                <div className="text-[10px] text-slate-400 mt-0.5 flex gap-2 items-center flex-wrap">
+                                                    <span className={`flex items-center gap-1 ${overdue && !it.isPaid ? 'text-red-600 font-bold' : ''}`}>
+                                                        Venc: {it.dueDate}
+                                                        {overdue && !it.isPaid && <Flame className="h-3 w-3 fill-red-500 text-red-600 animate-pulse" />}
+                                                    </span>
+                                                    <span className="text-[9px] px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCatColor(it.category || 'Outros') }}>{it.category || 'Outros'}</span>
+                                                    {it.needsReview && <span className="flex items-center gap-1 text-[9px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-200"><AlertTriangle className="h-3 w-3"/> Revisar</span>}
+                                                </div>
                                             </div>
                                         </div>
+                                        <div className="text-right pl-2">
+                                            <div className={`font-bold ${it.isPaid ? 'text-green-700 line-through decoration-green-700/50' : 'text-red-600'}`}>-{formatCurrencyBRL(it.displayVal || it.installmentAmount)}</div>
+                                            {(!isProjection || true) && ( // Allow actions in projection too as requested in Phase 4
+                                                <div className="flex gap-2 mt-1 justify-end">
+                                                    <Pencil className="h-3.5 w-3.5 text-slate-400 hover:text-blue-500 cursor-pointer" onClick={() => onEditDebt(it)} />
+                                                    <Trash2 className="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer" onClick={() => onDeleteDebt(it.id)} />
+                                                    {hasAdvance && <RefreshCw className="h-3.5 w-3.5 text-slate-400 hover:text-orange-500 cursor-pointer" onClick={() => onMove(it.id)} />}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="text-right pl-2">
-                                        <div className={`font-bold ${it.isPaid ? 'text-green-700 line-through decoration-green-700/50' : 'text-red-600'}`}>-{formatCurrencyBRL(it.displayVal || it.installmentAmount)}</div>
-                                        {!isProjection && (
-                                            <div className="flex gap-2 mt-1 justify-end">
-                                                <Pencil className="h-3.5 w-3.5 text-slate-400 hover:text-blue-500 cursor-pointer" onClick={() => onEditDebt(it)} />
-                                                <Trash2 className="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer" onClick={() => onDeleteDebt(it.id)} />
-                                                {hasAdvance && <RefreshCw className="h-3.5 w-3.5 text-slate-400 hover:text-orange-500 cursor-pointer" onClick={() => onMove(it.id)} />}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )})}
-                            {filteredItems.length === 0 && <div className="text-center text-xs text-slate-400 py-4">Nenhuma conta encontrada.</div>}
-                        </div>
+                                )})}
+                                {filteredItems.length === 0 && <div className="text-center text-xs text-slate-400 py-4">Nenhuma conta encontrada.</div>}
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -211,10 +249,28 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 };
 
 export const PlanningScreen = () => {
-    const { state, updateSettings, addCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, deleteDebt, updateDebt, switchCycle, clearDatabase, getCyclesForMonth, toggleDebtStatus, toggleTransactionStatus, addBatchedTransactions } = useFinancials();
+    const { state, updateSettings, addCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, deleteDebt, updateDebt, switchCycle, clearDatabase, getCyclesForMonth, toggleDebtStatus, toggleTransactionStatus, addBatchedTransactions, setViewDate } = useFinancials();
 
     const [activeTab, setActiveTab] = useState<'current' | 'projection'>('current');
-    const [currentDate, setCurrentDate] = useState(new Date());
+
+    // Instead of local state `currentDate`, use `state.viewDate` (or sync them).
+    // The prompt says "Implement navigation arrows in projection".
+    // I will use `viewDate` from context for the global view state.
+    // Initialize local state from context viewDate
+    const [currentDate, setCurrentDate] = useState(() => {
+        if (state.viewDate) {
+            const [y, m] = state.viewDate.split('-');
+            return new Date(parseInt(y), parseInt(m) - 1, 1);
+        }
+        return new Date();
+    });
+
+    // Sync when context changes (if needed) or update context when local changes.
+    // Let's make local state the driver and sync to context.
+    useEffect(() => {
+        const str = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+        if (state.viewDate !== str) setViewDate(str);
+    }, [currentDate, setViewDate]); // Ignore state.viewDate dep to avoid loop
 
     const [showSettings, setShowSettings] = useState(false);
     const [showImporter, setShowImporter] = useState(false);
@@ -255,6 +311,7 @@ export const PlanningScreen = () => {
     const [quickDesc, setQuickDesc] = useState('');
     const [quickVal, setQuickVal] = useState('');
     const [quickCycle, setQuickCycle] = useState<'day_05' | 'day_20'>('day_05');
+    const [quickType, setQuickType] = useState<'debt' | 'income'>('debt'); // NEW: Quick Add Selector
 
     // Current Month Cycles Retrieval
     const currentMonthStr = useMemo(() => {
@@ -337,12 +394,7 @@ export const PlanningScreen = () => {
                 if (e.target?.result) {
                     try {
                         const parsed = JSON.parse(e.target.result as string);
-                        // Validate basic structure
                         if (parsed.cycles && parsed.categories && parsed.settings) {
-                            // We can use a context method to restore, but since useFinancials doesn't expose one yet (oops),
-                            // we'll rely on localStorage reload hack or add `restoreState` to context.
-                            // Ideally, add `restoreState` to context.
-                            // For now, let's just save to localStorage and reload page.
                             localStorage.setItem('finance_db_v7', JSON.stringify(parsed));
                             window.location.reload();
                         } else {
@@ -367,7 +419,6 @@ export const PlanningScreen = () => {
     };
 
     const currentMonthStats = useMemo(() => {
-        // Safe access to array elements
         const c1Data = currentCycles[0] || { debts: [], transactions: [] };
         const c2Data = currentCycles[1] || { debts: [], transactions: [] };
 
@@ -394,44 +445,70 @@ export const PlanningScreen = () => {
 
     const projectionData = useMemo(() => {
         const arr = [];
-        const today = new Date();
+
+        // Use currentDate as base for projection
+        const baseDate = currentDate;
+
         const allDebts = state.cycles.flatMap(c => c.debts);
         const allTx = state.cycles.flatMap(c => c.transactions);
 
-        const fixedIncomes = [...allTx.filter(t => t.isFixed).map(t => ({ ...t, cycle: t.cycle }))];
+        // Filter unique recurring items (approximation: items with isFixed)
+        // Ideally we should have a separate list of recurring items.
+        // For now, we gather all Fixed items from HISTORY (all cycles).
+        // To avoid duplicates, we might want to dedupe by name?
+        // Or just take the ones from the current cycle?
+        // Let's stick to: Take fixed items from the current month view.
 
-        const c1Data = currentCycles[0] || { debts: [], transactions: [] };
-        const c2Data = currentCycles[1] || { debts: [], transactions: [] };
+        const currentMonthDebts = [...currentCycles[0].debts, ...currentCycles[1].debts];
+        const currentMonthFixedIncomes = [...currentCycles[0].transactions.filter(t => t.isFixed), ...currentCycles[1].transactions.filter(t => t.isFixed)];
 
-        const currentMonthDebts = [...c1Data.debts, ...c2Data.debts];
-        const currentMonthFixedIncomes = [...c1Data.transactions.filter(t => t.isFixed), ...c2Data.transactions.filter(t => t.isFixed)];
-
-        // Loop updated to 12 months as requested
         for (let i = 0; i < 12; i++) {
-            const fDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + i, 1);
+            const fDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + i, 1);
             const mLabel = MONTHS_FULL[fDate.getMonth()];
             const cycle1Debts: any[] = [];
             const cycle2Debts: any[] = [];
 
+            // Add Recurring Debts
             currentMonthDebts.forEach(d => {
                 let active = false;
                 let val = d.installmentAmount;
                 let curr = 0;
-                if (d.isFixed) { active = true; }
-                else {
-                    const mIdx = MONTHS_FULL.indexOf(d.billingMonth || '');
-                    if (mIdx !== -1) {
-                        let diff = mIdx - currentDate.getMonth();
-                        if (diff < 0) diff += 12;
-                        if (i >= diff) {
-                            const relIdx = i - diff;
-                            curr = d.currentInstallment + relIdx;
-                            if (curr <= d.totalInstallments) active = true;
+
+                if (d.isFixed) {
+                    active = true;
+                } else {
+                    // Installment logic
+                    // We need to calculate if the debt is active in fDate (Month i)
+                    // d.billingMonth is the start month.
+                    // Find index of start month.
+                    // This logic relies on month names which is fragile if years wrap.
+                    // Better logic: Calculate difference in months from Purchase/Start Date.
+
+                    if (d.totalInstallments > 1 && d.purchaseDate) {
+                        const start = new Date(d.purchaseDate); // Or Due Date of first installment
+                        // Actually d.dueDate might be the due date of the specific installment in the current cycle.
+                        // We need the start date of the installments series.
+                        // If we only have the current item, we can infer start date from currentInstallment.
+                        // start_month = current_month - (currentInstallment - 1)
+
+                        const currentMonthDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+                        const startMonthDate = new Date(currentMonthDate);
+                        startMonthDate.setMonth(startMonthDate.getMonth() - (d.currentInstallment - 1));
+
+                        const monthsDiff = (fDate.getFullYear() - startMonthDate.getFullYear()) * 12 + (fDate.getMonth() - startMonthDate.getMonth());
+
+                        if (monthsDiff >= 0 && monthsDiff < d.totalInstallments) {
+                            active = true;
+                            curr = monthsDiff + 1;
                         }
                     }
                 }
+
                 if (active) {
                     const item = { ...d, currentDisplay: curr, displayVal: val };
+                    // Items created in projection are needsReview
+                    if (!item.id) item.needsReview = true; // Just in case
+
                     if (d.cycle === 'day_05') cycle1Debts.push(item);
                     else cycle2Debts.push(item);
                 }
@@ -458,6 +535,7 @@ export const PlanningScreen = () => {
         const val = parseAmount(incomeAmount);
         if (!incomeName || val <= 0) return toast.error("Preencha campos corretamente.");
         let targetDate = new Date();
+        // Use currently viewed month
         if (targetDate.getMonth() !== currentDate.getMonth() || targetDate.getFullYear() !== currentDate.getFullYear()) {
              targetDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 10);
         }
@@ -479,6 +557,13 @@ export const PlanningScreen = () => {
             finalInst = iVal;
             finalTotal = count;
         }
+
+        let targetDate = new Date();
+        // Check if user set a specific date different from today?
+        // debtDate is controlled input.
+        // If user wants to add to the VIEWED month, they should select the date or we default to the view.
+        // We will respect `debtDate` but we should probably default `debtDate` to the view month when the view changes?
+        // For now, respect the explicit input.
 
         addDebt({
             name: fName, totalAmount: total, installmentAmount: finalInst,
@@ -502,11 +587,26 @@ export const PlanningScreen = () => {
 
         if (editType === 'debt' && 'installmentAmount' in editingItem) {
             const parsedAmount = parseAmount(String(editingItem.installmentAmount));
+            // Check for installment conversion logic here?
+            // If user changes from normal to installment in edit?
+            // For now, just save.
+
             const itemToSave = { ...editingItem, installmentAmount: parsedAmount };
+
+            // Validation: if fields are missing, keep needsReview. Else remove.
+            if (itemToSave.name && itemToSave.category && parsedAmount > 0) {
+                itemToSave.needsReview = false;
+            }
+
             updateDebt(itemToSave.id, itemToSave);
         } else if (editType === 'income' && 'amount' in editingItem) {
             const parsedAmount = parseAmount(String(editingItem.amount));
             const itemToSave = { ...editingItem, amount: parsedAmount };
+
+            if (itemToSave.description && itemToSave.category && parsedAmount > 0) {
+                itemToSave.needsReview = false;
+            }
+
             updateTransaction(itemToSave.id, itemToSave);
         }
 
@@ -518,25 +618,30 @@ export const PlanningScreen = () => {
     const quickAddProj = (monthIdx: number, dateObj: Date) => {
         const val = parseAmount(quickVal);
         if (!quickDesc || val <= 0) return;
-        addDebt({
-            name: quickDesc, totalAmount: val, installmentAmount: val,
-            dueDate: 'Previsto', purchaseDate: dateObj.toISOString(),
-            currentInstallment: 1, totalInstallments: 1, isFixed: false,
-            billingMonth: MONTHS_FULL[dateObj.getMonth()], category: 'Outros', cycle: quickCycle
-        });
+
+        if (quickType === 'debt') {
+            addDebt({
+                name: quickDesc, totalAmount: val, installmentAmount: val,
+                dueDate: 'Previsto', purchaseDate: dateObj.toISOString(),
+                currentInstallment: 1, totalInstallments: 1, isFixed: false,
+                billingMonth: MONTHS_FULL[dateObj.getMonth()], category: 'Outros', cycle: quickCycle,
+                needsReview: true // Always need review
+            });
+        } else {
+            addTransaction({
+                description: quickDesc, amount: val, type: 'income',
+                category: 'Outros', date: dateObj.toISOString(), isFixed: false, cycle: quickCycle,
+                needsReview: true
+            });
+        }
         setQuickDesc(''); setQuickVal(''); toast.success("Previsão adicionada");
     }
 
     const handleEditItemAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const rawValue = e.target.value.replace(/\D/g, '');
-        
         setEditingItem(prev => {
             if (!prev) return null;
-
-            if (!rawValue) {
-                return { ...prev, [editType === 'debt' ? 'installmentAmount' : 'amount']: '' as any };
-            }
-
+            if (!rawValue) return { ...prev, [editType === 'debt' ? 'installmentAmount' : 'amount']: '' as any };
             const numericValue = parseInt(rawValue, 10);
             const formattedValue = (numericValue / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             return { ...prev, [editType === 'debt' ? 'installmentAmount' : 'amount']: formattedValue as any };
@@ -558,7 +663,7 @@ export const PlanningScreen = () => {
 
                 <div className="bg-slate-200 p-1 rounded-full flex gap-1 shadow-inner">
                     <button onClick={() => setActiveTab('current')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'current' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}`}>Mês Atual</button>
-                    <button onClick={() => setActiveTab('projection')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'projection' ? 'bg-white shadow text-purple-700' : 'text-slate-500'}`}>Projeção</button>
+                    <button onClick={() => setActiveTab('projection')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'projection' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}`}>Projeção</button>
                 </div>
                 <div className="absolute right-0 top-0 flex items-center">
                     <Button variant="ghost" size="icon" className="text-slate-400 hover:bg-slate-100" onClick={() => setShowHelpModal(true)}><HelpCircle className="h-5 w-5" /></Button>
@@ -647,6 +752,16 @@ export const PlanningScreen = () => {
                                     </div>
                                     <div className="grid grid-cols-2 gap-2"><div><Label className="text-[10px]">Compra</Label><Input type="date" value={(editingItem as Debt).purchaseDate} onChange={e => setEditingItem({ ...editingItem, purchaseDate: e.target.value })} /></div><div><Label className="text-[10px]">Vencimento</Label><Input value={(editingItem as Debt).dueDate} onChange={e => setEditingItem({ ...editingItem, dueDate: e.target.value })} /></div></div>
                                     <div className="grid grid-cols-2 gap-2"><div><Label className="text-[10px]">Ciclo</Label><select className="w-full border rounded px-2 h-10 text-sm" value={editingItem.cycle} onChange={e => setEditingItem({ ...editingItem, cycle: e.target.value as any })}><option value="day_05">Dia {state.settings.salaryDay}</option>{state.settings.hasAdvance && <option value="day_20">Dia {state.settings.advanceDay}</option>}</select></div><div><Label className="text-[10px]">Método</Label><select className="w-full border rounded px-2 h-10 text-sm" value={(editingItem as Debt).paymentMethod} onChange={e => setEditingItem({ ...editingItem, paymentMethod: e.target.value })}><option value="Cartão">Cartão</option><option value="Pix">Pix</option><option value="Boleto">Boleto</option></select></div></div>
+                                    {/* Additional fields for editing (Fixed, Installments) */}
+                                    <div className="flex gap-4 border-t pt-2">
+                                        <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={editingItem.isFixed} onChange={e => setEditingItem({ ...editingItem, isFixed: e.target.checked })} /> Fixa</label>
+                                        <div className="flex items-center gap-2 text-xs">
+                                            <span>Parc:</span>
+                                            <input className="w-10 border rounded px-1" type="number" value={(editingItem as Debt).currentInstallment} onChange={e => setEditingItem({ ...editingItem, currentInstallment: parseInt(e.target.value) })} />
+                                            <span>/</span>
+                                            <input className="w-10 border rounded px-1" type="number" value={(editingItem as Debt).totalInstallments} onChange={e => setEditingItem({ ...editingItem, totalInstallments: parseInt(e.target.value) })} />
+                                        </div>
+                                    </div>
                                 </>
                             ) : (
                                 <>
@@ -690,7 +805,7 @@ export const PlanningScreen = () => {
                             {/* BOTÃO DE IMPORTAÇÃO ESTRATÉGICO */}
                             <div className="flex justify-center -mt-2 mb-2">
                                 <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50 w-full md:w-auto" onClick={() => setShowImporter(true)}>
-                                    <Upload className="h-4 w-4 mr-2"/> Importar Extrato / Arquivo
+                                    <Upload className="h-4 w-4 mr-2"/> Importação Massiva
                                 </Button>
                             </div>
 
@@ -801,13 +916,20 @@ export const PlanningScreen = () => {
             {/* TAB: PROJEÇÃO */}
             {activeTab === 'projection' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in">
+                    {/* NAV DE PROJEÇÃO */}
+                    <div className="md:col-span-2 xl:col-span-3 flex justify-between items-center bg-white p-3 rounded-lg shadow-sm border mb-2">
+                        <Button variant="ghost" size="sm" onClick={() => changeMonth('prev')}><ChevronLeft className="h-4 w-4 mr-1"/> Voltar</Button>
+                        <span className="font-bold text-slate-700 uppercase">{currentMonthLabel}</span>
+                        <Button variant="ghost" size="sm" onClick={() => changeMonth('next')}>Avançar <ChevronRight className="h-4 w-4 ml-1"/></Button>
+                    </div>
+
                     {projectionData.map((m, idx) => (
-                        <Card key={idx} className={`transition-all duration-300 border-t-4 ${m.totalBal >= 0 ? 'border-t-green-500' : 'border-t-red-500'} ${expandedMonthIndex === idx ? 'md:col-span-2 xl:col-span-3 ring-4 ring-slate-100 shadow-2xl z-10' : 'hover:shadow-lg'}`}>
+                        <Card key={idx} className={`transition-all duration-300 border-t-4 ${m.totalBal >= 0 ? 'border-t-blue-500' : 'border-t-blue-500'} ${expandedMonthIndex === idx ? 'md:col-span-2 xl:col-span-3 ring-4 ring-slate-100 shadow-2xl z-10' : 'hover:shadow-lg'}`}>
                             <CardHeader className="bg-white pb-4 cursor-pointer" onClick={() => setExpandedMonthIndex(expandedMonthIndex === idx ? null : idx)}>
                                 <div className="flex justify-between items-center">
                                     <div><CardTitle className="text-lg font-black text-slate-700 uppercase tracking-tight">{m.label}</CardTitle><p className="text-xs text-slate-400 mt-1">{m.cycle1.items.length + m.cycle2.items.length} contas previstas</p></div>
                                     <div className="text-right">
-                                        <span className={`block text-2xl font-bold ${m.totalBal >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrencyBRL(m.totalBal)}</span>
+                                        <span className={`block text-2xl font-bold ${m.totalBal >= 0 ? 'text-blue-600' : 'text-slate-600'}`}>{formatCurrencyBRL(m.totalBal)}</span>
                                         <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Saldo Previsto</span>
                                     </div>
                                     <div className="text-slate-400">{expandedMonthIndex === idx ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</div>
@@ -816,12 +938,30 @@ export const PlanningScreen = () => {
                             {expandedMonthIndex === idx && (
                                 <CardContent className="pt-4">
                                     <div className={`grid grid-cols-1 ${state.settings.hasAdvance ? 'md:grid-cols-2' : ''} gap-6`}>
-                                        <CycleSection title={`Ciclo ${state.settings.salaryDay}`} stats={m.cycle1} items={m.cycle1.items} incomes={m.cycle1.incomes} colorClass="bg-blue-50/50" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories} onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle} isProjection />
-                                        {state.settings.hasAdvance && <CycleSection title={`Ciclo ${state.settings.advanceDay}`} stats={m.cycle2} items={m.cycle2.items} incomes={m.cycle2.incomes} colorClass="bg-emerald-50/50" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories} onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle} isProjection />}
+                                        <CycleSection
+                                            title={`Ciclo ${state.settings.salaryDay}`} stats={m.cycle1} items={m.cycle1.items} incomes={m.cycle1.incomes} colorClass="bg-blue-50/50" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories}
+                                            onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
+                                            onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
+                                            isProjection
+                                        />
+                                        {state.settings.hasAdvance && <CycleSection
+                                            title={`Ciclo ${state.settings.advanceDay}`} stats={m.cycle2} items={m.cycle2.items} incomes={m.cycle2.incomes} colorClass="bg-slate-50/50" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories}
+                                            onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
+                                            onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
+                                            isProjection
+                                        />}
                                     </div>
                                     <div className="mt-4 pt-3 border-t bg-slate-50 p-2 rounded-lg flex gap-2 items-center justify-between">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase hidden md:inline">Add Rápido:</span>
-                                        <div className="flex gap-2 flex-1"><Input placeholder="Desc" value={quickDesc} onChange={e => setQuickDesc(e.target.value)} className="h-8 text-xs bg-white flex-1" /><Input type="text" inputMode="decimal" placeholder="0,00" value={quickVal} onChange={handleAmountChange(setQuickVal)} className="h-8 text-xs bg-white w-20" />{state.settings.hasAdvance && <select className="h-8 text-xs border rounded px-1 bg-white" value={quickCycle} onChange={(e: any) => setQuickCycle(e.target.value)}><option value="day_05">Dia {state.settings.salaryDay}</option><option value="day_20">Dia {state.settings.advanceDay}</option></select>}<Button size="sm" className="h-8 bg-slate-800" onClick={() => quickAddProj(idx, m.date)}><Plus className="h-4 w-4" /></Button></div>
+                                        <div className="flex gap-2 flex-1">
+                                            <select className="h-8 text-xs border rounded px-1 bg-white font-bold text-slate-700" value={quickType} onChange={(e:any) => setQuickType(e.target.value)}>
+                                                <option value="debt">Dívida</option>
+                                                <option value="income">Entrada</option>
+                                            </select>
+                                            <Input placeholder="Desc" value={quickDesc} onChange={e => setQuickDesc(e.target.value)} className="h-8 text-xs bg-white flex-1" />
+                                            <Input type="text" inputMode="decimal" placeholder="0,00" value={quickVal} onChange={handleAmountChange(setQuickVal)} className="h-8 text-xs bg-white w-20" />
+                                            {state.settings.hasAdvance && <select className="h-8 text-xs border rounded px-1 bg-white" value={quickCycle} onChange={(e: any) => setQuickCycle(e.target.value)}><option value="day_05">Dia {state.settings.salaryDay}</option><option value="day_20">Dia {state.settings.advanceDay}</option></select>}
+                                            <Button size="sm" className="h-8 bg-slate-800" onClick={() => quickAddProj(idx, m.date)}><Plus className="h-4 w-4" /></Button>
+                                        </div>
                                     </div>
                                 </CardContent>
                             )}

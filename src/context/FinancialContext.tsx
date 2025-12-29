@@ -12,7 +12,7 @@ const getCurrentMonthStr = () => {
 };
 
 const initialState: FinancialState = {
-  cycles: [], // Start empty, will be populated on load or init
+  cycles: [],
   categories: [
     { id: 'cat1', name: 'Salário', type: 'income', color: '#10b981' },
     { id: 'cat2', name: 'Casa', type: 'expense', color: '#3b82f6' },
@@ -24,7 +24,8 @@ const initialState: FinancialState = {
     { id: 'cat8', name: 'Outros', type: 'expense', color: '#64748b' },
   ],
   settings: { salaryDay: 5, hasAdvance: true, advanceDay: 20, theme: 'system' },
-  categoryMappings: {}
+  categoryMappings: {},
+  viewDate: getCurrentMonthStr()
 };
 
 interface FinancialContextType {
@@ -48,6 +49,7 @@ interface FinancialContextType {
   getCyclesForMonth: (monthStr: string) => FinancialCycle[];
   toggleDebtStatus: (id: string) => void;
   toggleTransactionStatus: (id: string) => void;
+  setViewDate: (date: string) => void;
 }
 
 const FinancialContext = createContext<FinancialContextType | undefined>(undefined);
@@ -63,6 +65,9 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
             const parsed = JSON.parse(saved);
             if (!parsed.categoryMappings) parsed.categoryMappings = {};
 
+            // Migration: Add viewDate if missing
+            if (!parsed.viewDate) parsed.viewDate = getCurrentMonthStr();
+
             // Migration check: Ensure cycles have month property
             if (parsed.cycles && parsed.cycles.length > 0 && !parsed.cycles[0].month) {
                 const currentMonth = getCurrentMonthStr();
@@ -72,10 +77,10 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
             setState(parsed); 
         } catch (e) { console.error(e); } 
     } else {
-        // Initialize with current month cycles if no data
         const currentMonth = getCurrentMonthStr();
         setState(prev => ({
             ...prev,
+            viewDate: currentMonth,
             cycles: [
                 { id: `${currentMonth}_day_05`, month: currentMonth, type: 'day_05', transactions: [], debts: [] },
                 { id: `${currentMonth}_day_20`, month: currentMonth, type: 'day_20', transactions: [], debts: [] }
@@ -91,6 +96,8 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
 
   const updateSettings = (s: UserSettings) => setState(prev => ({ ...prev, settings: s }));
   
+  const setViewDate = (date: string) => setState(prev => ({ ...prev, viewDate: date }));
+
   const addCategory = (name: string, type: 'income'|'expense', color: string) => {
       setState(prev => ({ ...prev, categories: [...prev.categories, { id: uuidv4(), name, type, color }] }));
   };
@@ -113,7 +120,6 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
       }));
   };
 
-  // Helper to find or create cycles for a given month
   const ensureCyclesForMonth = (cycles: FinancialCycle[], monthStr: string): FinancialCycle[] => {
       const exists = cycles.some(c => c.month === monthStr);
       if (exists) return cycles;
@@ -149,27 +155,53 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addDebt = (d: Omit<Debt, 'id'>) => {
-    // If purchaseDate is available, use it to determine month, otherwise use current month or based on dueDate logic if needed
-    // However, debts are usually assigned to a cycle. We will trust the current context or derived logic.
-    // Ideally, Debt date should drive the cycle month.
-    const dateStr = d.purchaseDate || new Date().toISOString();
+    // If it's an installment debt, we need to create multiple debts for future months
+    const dateStr = d.purchaseDate || d.dueDate || new Date().toISOString();
     const dateObj = new Date(dateStr);
-    const monthStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
 
     setState(prev => {
-        const cyclesWithMonth = ensureCyclesForMonth(prev.cycles, monthStr);
-        return {
-            ...prev,
-            cycles: cyclesWithMonth.map(c => (c.month === monthStr && c.type === d.cycle)
-                ? { ...c, debts: [...c.debts, { ...d, id: uuidv4(), isPaid: false, needsReview: false }] }
-                : c)
-        };
+        let newCycles = [...prev.cycles];
+        const count = (d.totalInstallments > 1) ? d.totalInstallments : 1;
+
+        // Loop to create installments
+        for (let i = 0; i < count; i++) {
+            const installmentDate = new Date(dateObj);
+            installmentDate.setMonth(installmentDate.getMonth() + i);
+            const monthStr = `${installmentDate.getFullYear()}-${String(installmentDate.getMonth() + 1).padStart(2, '0')}`;
+
+            // Due date adjustment? Assuming same day of month.
+            const dueDateObj = new Date(d.dueDate);
+            dueDateObj.setMonth(dueDateObj.getMonth() + i);
+            const dueDateStr = dueDateObj.toISOString().split('T')[0];
+
+            newCycles = ensureCyclesForMonth(newCycles, monthStr);
+
+            const currentInstallment = d.currentInstallment + i;
+            // Should we add only if currentInstallment <= totalInstallments? Yes.
+            if (currentInstallment > d.totalInstallments) break;
+
+            // Create debt for this month
+            // We need to find the cycle within newCycles for this month
+            const cycleIndex = newCycles.findIndex(c => c.month === monthStr && c.type === d.cycle);
+            if (cycleIndex !== -1) {
+                newCycles[cycleIndex].debts.push({
+                    ...d,
+                    id: uuidv4(),
+                    dueDate: dueDateStr,
+                    currentInstallment: currentInstallment,
+                    isPaid: false,
+                    needsReview: i === 0 ? (d.needsReview ?? false) : false // Only flag first one if needed? Or none?
+                });
+            }
+        }
+
+        return { ...prev, cycles: newCycles };
     });
   };
   
   const addProjectedDebt = (d: Omit<Debt, 'id'>) => {
       const { salaryDay, advanceDay, hasAdvance } = state.settings;
-      const debtDate = new Date(d.purchaseDate!);
+      const debtDate = new Date(d.purchaseDate || d.dueDate);
       const debtDay = debtDate.getDate();
 
       let targetCycle: 'day_05' | 'day_20' = 'day_05';
@@ -185,10 +217,6 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
 
   const updateDebt = (id: string, updated: Partial<Debt>) => {
       setState(prev => {
-          // Find the debt to get its current cycle/month to handle moves if necessary
-          // For now, assume simple update in place or simple cycle switch within same month
-          // If month changes, we might need more complex logic, but usually cycle switch is enough.
-
           return { ...prev, cycles: prev.cycles.map(c => ({ ...c, debts: c.debts.map(d => d.id === id ? { ...d, ...updated } : d) })) };
       });
   };
@@ -230,7 +258,8 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
                 installmentAmount: amountToPay,
                 paidAmount: amountToPay,
                 totalAmount: debtToSplit!.installmentAmount,
-                isPaid: true
+                isPaid: true,
+                paymentDate: new Date().toISOString()
             };
             const remainingPart: Debt = {
                 ...debtToSplit!,
@@ -266,28 +295,17 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
 
           if (!item || !currentCycle) return prev;
 
-          // Logic to switch cycle. If day_20, might move to next month day_05?
-          // Or just switch between day_05 and day_20 within same month?
-          // Original logic: day_20 -> next month day_05. day_05 -> same month day_20.
-
           let targetMonth = currentCycle.month;
           let targetType: 'day_05' | 'day_20';
           let updatedItem = { ...item };
 
           if (currentCycle.type === 'day_20') {
-              // Move to next month day_05
               const [y, m] = currentCycle.month.split('-').map(Number);
-              const nextDate = new Date(y, m, 1); // m is 1-based from split? No, Month in Date is 0-based.
-              // split('2024-01') -> y=2024, m=1. new Date(2024, 1, 1) is Feb 1st. Correct.
+              const nextDate = new Date(y, m, 1);
               targetMonth = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
               targetType = 'day_05';
-
-              const currentMonthIdx = MONTHS_FULL.indexOf(item.billingMonth || '');
-              const nextMonthName = MONTHS_FULL[(currentMonthIdx + 1) % 12];
-              updatedItem.billingMonth = nextMonthName;
               updatedItem.cycle = 'day_05';
           } else {
-              // Move to same month day_20
               targetType = 'day_20';
               updatedItem.cycle = 'day_20';
           }
@@ -297,11 +315,9 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
           return {
               ...prev,
               cycles: cyclesWithTarget.map(c => {
-                  // Remove from old
                   if (c.id === currentCycle!.id) {
                       return { ...c, debts: c.debts.filter(d => d.id !== id) };
                   }
-                  // Add to new
                   if (c.month === targetMonth && c.type === targetType) {
                       return { ...c, debts: [...c.debts, updatedItem] };
                   }
@@ -318,13 +334,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
         const currentMonthName = MONTHS_FULL[new Date().getMonth()];
 
         transactions.forEach(t => {
-            const dateObj = new Date(t.date); // expects YYYY-MM-DD or valid date string
-            // Fix: imported dates might be DD/MM/YYYY or YYYY-MM-DD.
-            // If from importer (UniversalImporter later), we should standardize to YYYY-MM-DD.
-            // Assuming t.date is standard YYYY-MM-DD for now or ISO.
-
-            // If date is invalid or needs parsing, we'll handle it.
-            // For now, assume t.date is good.
+            const dateObj = new Date(t.date);
             const monthStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
 
             newCycles = ensureCyclesForMonth(newCycles, monthStr);
@@ -354,6 +364,12 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
                 } else {
                     const isInst = !!t.installments;
                     const finalName = t.sender ? t.sender : t.description;
+
+                    // Handle installments in import (simplified: create just one, or loop?)
+                    // For massive import, if "installments" detected, we might need logic.
+                    // But imported transactions usually represent ONE charge (e.g. 1/10).
+                    // So we treat it as single record. The 'total' in installments object suggests tracking.
+
                     newCycles[idx].debts.push({
                         id: uuidv4(), name: finalName,
                         totalAmount: Math.abs(t.amount) * (isInst ? t.installments!.total : 1),
@@ -373,14 +389,9 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
 
   const clearDatabase = (range: 'all' | '2months' | '6months') => {
       if (range === 'all') setState({ ...initialState, settings: state.settings, categories: state.categories, categoryMappings: state.categoryMappings });
-      // TODO: Implement other ranges if needed
   };
 
   const getCyclesForMonth = (monthStr: string) => {
-      // Returns the two cycles for the requested month. If not exist, returns empty placeholders (but doesn't modify state)
-      // or we can ensure they exist in state? Better to just filter what we have.
-      // Actually, PlanningScreen expects them to exist.
-      // If we don't find them, we can return virtual empty cycles.
       const found = state.cycles.filter(c => c.month === monthStr);
       if (found.length === 0) {
           return [
@@ -388,7 +399,6 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
              { id: `${monthStr}_day_20`, month: monthStr, type: 'day_20', transactions: [], debts: [] } as FinancialCycle
           ];
       }
-      // Sort to ensure day_05 is first
       return found.sort((a, b) => a.type === 'day_05' ? -1 : 1);
   };
 
@@ -397,7 +407,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
           ...prev,
           cycles: prev.cycles.map(c => ({
               ...c,
-              debts: c.debts.map(d => d.id === id ? { ...d, isPaid: !d.isPaid } : d)
+              debts: c.debts.map(d => d.id === id ? { ...d, isPaid: !d.isPaid, paymentDate: !d.isPaid ? new Date().toISOString() : undefined } : d)
           }))
       }));
   };
@@ -413,7 +423,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <FinancialContext.Provider value={{ state, updateSettings, addCategory, updateCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, addProjectedDebt, addBatchedTransactions, updateDebt, deleteDebt, payPartialDebt, switchCycle, learnCategory, clearDatabase, getCyclesForMonth, toggleDebtStatus, toggleTransactionStatus }}>
+    <FinancialContext.Provider value={{ state, updateSettings, addCategory, updateCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, addProjectedDebt, addBatchedTransactions, updateDebt, deleteDebt, payPartialDebt, switchCycle, learnCategory, clearDatabase, getCyclesForMonth, toggleDebtStatus, toggleTransactionStatus, setViewDate }}>
       {children}
     </FinancialContext.Provider>
   );

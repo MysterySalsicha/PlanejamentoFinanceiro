@@ -21,6 +21,7 @@ export interface Debt {
     paidAmount?: number;
     dueDate: string;
     purchaseDate?: string;
+    paymentDate?: string; // ISO String
     currentInstallment: number;
     totalInstallments: number;
     isFixed?: boolean;
@@ -58,7 +59,8 @@ export interface FinancialState {
     cycles: FinancialCycle[];
     categories: Category[];
     settings: UserSettings;
-    categoryMappings: Record<string, string>; // NOVO: Memória de Categorias
+    categoryMappings: Record<string, string>;
+    viewDate: string; // Format: YYYY-MM
 }
 
 export interface ImportedTransaction {
