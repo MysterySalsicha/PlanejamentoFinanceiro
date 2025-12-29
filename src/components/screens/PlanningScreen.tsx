@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatCurrencyBRL, parseMoney, formatMoney } from '@/lib/utils';
-import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimize2, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
+import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimize2, ChevronDown, ChevronUp, HelpCircle, ChevronLeft, ChevronRight, Check, AlertTriangle, Flame, Upload, Download, RotateCcw } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { toast } from 'sonner';
+import { UniversalImporter } from '@/components/UniversalImporter'; // Import Importer
 
 // Funções de máscara de valor (idênticas às de AddTransactionModal)
 const handleAmountChange = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -30,7 +31,7 @@ const parseAmount = (formattedAmount: string): number => {
 };
 
 // --- COMPONENTE CICLO (Card de Estatísticas) ---
-const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, onEditDebt, onEditInc, onDeleteDebt, onDeleteInc, onMove, categories, isProjection }: any) => {
+const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, onEditDebt, onEditInc, onDeleteDebt, onDeleteInc, onMove, categories, isProjection, onToggleDebt, onToggleInc }: any) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
@@ -45,13 +46,26 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 
     // Filtra itens se houver categoria selecionada no gráfico
     const filteredItems = useMemo(() => {
-        let list = items;
+        let list = items || [];
         if (drillCategory) list = list.filter((it: any) => (it.category || 'Outros') === drillCategory);
         // Ordena por data
         return list.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
     }, [items, drillCategory]);
 
     const activeSlice = stats.chartData.find((d: any) => d.name === drillCategory);
+
+    // Helper to check overdue
+    const isOverdue = (dueDate: string, isPaid?: boolean) => {
+        if (isPaid) return false;
+        // Simple string comparison for YYYY-MM-DD works, but let's be safe
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const due = new Date(dueDate);
+        due.setHours(0,0,0,0); // Treat due date as end of day? Or start? Usually strict.
+        // Actually, if today > due date, it's overdue.
+        // If today == due date, it's due today (urgent but not late yet).
+        return today > due;
+    };
 
     return (
         <div className={`rounded-xl border p-4 ${colorClass} transition-all duration-500 ease-in-out relative flex flex-col ${isExpanded ? 'h-auto min-h-[500px] shadow-lg ring-1 ring-black/5' : 'h-48 hover:shadow-md'}`}>
@@ -117,8 +131,15 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                             <h4 className="text-[10px] font-bold text-green-700 uppercase mb-2 border-b border-green-100 pb-1">Entradas</h4>
                             <div className="space-y-1">
                                 {incomes.map((inc: any) => (
-                                    <div key={inc.id} className="flex justify-between items-center bg-green-50/50 p-2 rounded border border-green-100/50 text-xs">
-                                        <span className="font-medium text-green-900">{inc.description}</span>
+                                    <div key={inc.id} className={`flex justify-between items-center bg-green-50/50 p-2 rounded border border-green-100/50 text-xs ${inc.isPaid ? 'opacity-60' : ''}`}>
+                                        <div className="flex items-center gap-2">
+                                            {!isProjection && (
+                                                 <div onClick={() => onToggleInc(inc.id)} className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${inc.isPaid ? 'bg-green-600 border-green-600' : 'bg-white border-green-300'}`}>
+                                                     {inc.isPaid && <Check className="h-3 w-3 text-white" />}
+                                                 </div>
+                                            )}
+                                            <span className={`font-medium text-green-900 ${inc.isPaid ? 'line-through decoration-green-900/50' : ''}`}>{inc.description}</span>
+                                        </div>
                                         <div className="flex items-center gap-2">
                                             <span className="font-bold text-green-700">{formatCurrencyBRL(inc.amount)}</span>
                                             {!isProjection && (
@@ -138,17 +159,38 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                     <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
                         <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2 border-b pb-1 sticky top-0 bg-inherit">Saídas {drillCategory ? `(${drillCategory})` : ''}</h4>
                         <div className="space-y-2">
-                            {filteredItems.map((it: any) => (
-                                <div key={it.id} className="bg-white p-2.5 rounded-lg shadow-sm border border-slate-100 text-xs hover:border-slate-300 transition-colors flex justify-between items-start">
-                                    <div className="flex-1">
-                                        <div className="font-bold text-slate-700">{it.name} {it.currentDisplay && <span className="text-[10px] font-normal text-slate-400">({it.currentDisplay}/{it.totalInstallments})</span>}</div>
-                                        <div className="text-[10px] text-slate-400 mt-0.5 flex gap-2 items-center">
-                                            <span>Venc: {it.dueDate}</span>
-                                            <span className="text-[9px] px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCatColor(it.category || 'Outros') }}>{it.category || 'Outros'}</span>
+                            {filteredItems.map((it: any) => {
+                                const overdue = isOverdue(it.dueDate, it.isPaid);
+                                const itemClass = it.isPaid
+                                    ? 'bg-green-50 border-green-200 opacity-60'
+                                    : overdue
+                                        ? 'bg-white border-red-300 ring-1 ring-red-100'
+                                        : 'bg-white border-slate-100';
+
+                                return (
+                                <div key={it.id} className={`${itemClass} p-2.5 rounded-lg shadow-sm border text-xs hover:border-slate-300 transition-all flex justify-between items-start`}>
+                                    <div className="flex items-start gap-2 flex-1">
+                                        {!isProjection && (
+                                            <div onClick={() => onToggleDebt(it.id)} className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors shrink-0 ${it.isPaid ? 'bg-green-600 border-green-600' : 'bg-white border-slate-300 hover:border-blue-400'}`}>
+                                                 {it.isPaid && <Check className="h-3 w-3 text-white" />}
+                                            </div>
+                                        )}
+                                        <div>
+                                            <div className={`font-bold ${it.isPaid ? 'text-green-800 line-through decoration-slate-400' : 'text-slate-700'}`}>
+                                                {it.name} {it.currentDisplay && <span className="text-[10px] font-normal text-slate-400">({it.currentDisplay}/{it.totalInstallments})</span>}
+                                            </div>
+                                            <div className="text-[10px] text-slate-400 mt-0.5 flex gap-2 items-center flex-wrap">
+                                                <span className={`flex items-center gap-1 ${overdue && !it.isPaid ? 'text-red-600 font-bold' : ''}`}>
+                                                    Venc: {it.dueDate}
+                                                    {overdue && !it.isPaid && <Flame className="h-3 w-3 fill-red-500 text-red-600 animate-pulse" />}
+                                                </span>
+                                                <span className="text-[9px] px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCatColor(it.category || 'Outros') }}>{it.category || 'Outros'}</span>
+                                                {it.needsReview && <span className="flex items-center gap-1 text-[9px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-200"><AlertTriangle className="h-3 w-3"/> Revisar</span>}
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="text-right pl-2">
-                                        <div className="font-bold text-red-600">-{formatCurrencyBRL(it.displayVal || it.installmentAmount)}</div>
+                                        <div className={`font-bold ${it.isPaid ? 'text-green-700 line-through decoration-green-700/50' : 'text-red-600'}`}>-{formatCurrencyBRL(it.displayVal || it.installmentAmount)}</div>
                                         {!isProjection && (
                                             <div className="flex gap-2 mt-1 justify-end">
                                                 <Pencil className="h-3.5 w-3.5 text-slate-400 hover:text-blue-500 cursor-pointer" onClick={() => onEditDebt(it)} />
@@ -158,7 +200,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                         )}
                                     </div>
                                 </div>
-                            ))}
+                            )})}
                             {filteredItems.length === 0 && <div className="text-center text-xs text-slate-400 py-4">Nenhuma conta encontrada.</div>}
                         </div>
                     </div>
@@ -169,10 +211,13 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 };
 
 export const PlanningScreen = () => {
-    const { state, updateSettings, addCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, deleteDebt, updateDebt, switchCycle, clearDatabase } = useFinancials();
+    const { state, updateSettings, addCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, deleteDebt, updateDebt, switchCycle, clearDatabase, getCyclesForMonth, toggleDebtStatus, toggleTransactionStatus, addBatchedTransactions } = useFinancials();
 
     const [activeTab, setActiveTab] = useState<'current' | 'projection'>('current');
+    const [currentDate, setCurrentDate] = useState(new Date());
+
     const [showSettings, setShowSettings] = useState(false);
+    const [showImporter, setShowImporter] = useState(false);
     const [showHelpModal, setShowHelpModal] = useState(false);
     const [expandedMonthIndex, setExpandedMonthIndex] = useState<number | null>(null);
     const [expandedSummary, setExpandedSummary] = useState<'incomes' | 'debts' | null>(null);
@@ -211,6 +256,28 @@ export const PlanningScreen = () => {
     const [quickVal, setQuickVal] = useState('');
     const [quickCycle, setQuickCycle] = useState<'day_05' | 'day_20'>('day_05');
 
+    // Current Month Cycles Retrieval
+    const currentMonthStr = useMemo(() => {
+        return `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    }, [currentDate]);
+
+    const currentCycles = useMemo(() => {
+        return getCyclesForMonth(currentMonthStr);
+    }, [getCyclesForMonth, currentMonthStr, state.cycles]);
+
+    const currentMonthLabel = useMemo(() => {
+        return `${MONTHS_FULL[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+    }, [currentDate]);
+
+    const changeMonth = (direction: 'prev' | 'next') => {
+        setCurrentDate(prev => {
+            const newDate = new Date(prev);
+            if (direction === 'prev') newDate.setMonth(prev.getMonth() - 1);
+            else newDate.setMonth(prev.getMonth() + 1);
+            return newDate;
+        });
+    };
+
     // Auto-cálculo parcelas
     useEffect(() => {
         if (isInstallment && instVal && instCount) {
@@ -240,6 +307,7 @@ export const PlanningScreen = () => {
     useEffect(() => {
         const handleBackPress = () => {
             if (showSettings) setShowSettings(false);
+            if (showImporter) setShowImporter(false);
             if (showHelpModal) setShowHelpModal(false);
         };
 
@@ -248,7 +316,45 @@ export const PlanningScreen = () => {
         return () => {
             window.removeEventListener('popstate', handleBackPress);
         };
-    }, [showSettings, showHelpModal]);
+    }, [showSettings, showImporter, showHelpModal]);
+
+    // Backup & Restore
+    const handleExportBackup = () => {
+        const dataStr = JSON.stringify(state);
+        const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+        const exportFileDefaultName = `backup-financeiro-${new Date().toISOString().split('T')[0]}.json`;
+        const linkElement = document.createElement('a');
+        linkElement.setAttribute('href', dataUri);
+        linkElement.setAttribute('download', exportFileDefaultName);
+        linkElement.click();
+    };
+
+    const handleImportBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const fileReader = new FileReader();
+        if (event.target.files && event.target.files.length > 0) {
+            fileReader.readAsText(event.target.files[0], "UTF-8");
+            fileReader.onload = (e) => {
+                if (e.target?.result) {
+                    try {
+                        const parsed = JSON.parse(e.target.result as string);
+                        // Validate basic structure
+                        if (parsed.cycles && parsed.categories && parsed.settings) {
+                            // We can use a context method to restore, but since useFinancials doesn't expose one yet (oops),
+                            // we'll rely on localStorage reload hack or add `restoreState` to context.
+                            // Ideally, add `restoreState` to context.
+                            // For now, let's just save to localStorage and reload page.
+                            localStorage.setItem('finance_db_v7', JSON.stringify(parsed));
+                            window.location.reload();
+                        } else {
+                            toast.error("Arquivo de backup inválido.");
+                        }
+                    } catch (error) {
+                        toast.error("Erro ao ler arquivo.");
+                    }
+                }
+            };
+        }
+    };
 
     // Helpers
     const getCycleStats = (debts: Debt[], transactions: any[]) => {
@@ -261,10 +367,14 @@ export const PlanningScreen = () => {
     };
 
     const currentMonthStats = useMemo(() => {
-        const c1 = getCycleStats(state.cycles[0].debts, state.cycles[0].transactions);
-        const c2 = getCycleStats(state.cycles[1].debts, state.cycles[1].transactions);
+        // Safe access to array elements
+        const c1Data = currentCycles[0] || { debts: [], transactions: [] };
+        const c2Data = currentCycles[1] || { debts: [], transactions: [] };
+
+        const c1 = getCycleStats(c1Data.debts, c1Data.transactions);
+        const c2 = getCycleStats(c2Data.debts, c2Data.transactions);
         return { c1, c2 };
-    }, [state]);
+    }, [currentCycles]);
 
     const totalMonthStats = useMemo(() => {
         const totalIncomes = (currentMonthStats.c1.inc || 0) + (currentMonthStats.c2.inc || 0);
@@ -274,24 +384,36 @@ export const PlanningScreen = () => {
     }, [currentMonthStats]);
 
     const monthItems = useMemo(() => {
-        const incomes = [...state.cycles[0].transactions, ...state.cycles[1].transactions];
-        const debts = [...state.cycles[0].debts, ...state.cycles[1].debts];
+        const c1Data = currentCycles[0] || { debts: [], transactions: [] };
+        const c2Data = currentCycles[1] || { debts: [], transactions: [] };
+
+        const incomes = [...c1Data.transactions, ...c2Data.transactions];
+        const debts = [...c1Data.debts, ...c2Data.debts];
         return { incomes, debts };
-    }, [state.cycles]);
+    }, [currentCycles]);
 
     const projectionData = useMemo(() => {
         const arr = [];
         const today = new Date();
-        const allDebts = [...state.cycles[0].debts, ...state.cycles[1].debts];
-        const fixedIncomes = [...state.cycles[0].transactions.filter(t => t.isFixed).map(t => ({ ...t, cycle: 'day_05' })), ...state.cycles[1].transactions.filter(t => t.isFixed).map(t => ({ ...t, cycle: 'day_20' }))];
+        const allDebts = state.cycles.flatMap(c => c.debts);
+        const allTx = state.cycles.flatMap(c => c.transactions);
 
-        for (let i = 0; i < 6; i++) {
-            const fDate = new Date(today.getFullYear(), today.getMonth() + i, 1);
+        const fixedIncomes = [...allTx.filter(t => t.isFixed).map(t => ({ ...t, cycle: t.cycle }))];
+
+        const c1Data = currentCycles[0] || { debts: [], transactions: [] };
+        const c2Data = currentCycles[1] || { debts: [], transactions: [] };
+
+        const currentMonthDebts = [...c1Data.debts, ...c2Data.debts];
+        const currentMonthFixedIncomes = [...c1Data.transactions.filter(t => t.isFixed), ...c2Data.transactions.filter(t => t.isFixed)];
+
+        // Loop updated to 12 months as requested
+        for (let i = 0; i < 12; i++) {
+            const fDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + i, 1);
             const mLabel = MONTHS_FULL[fDate.getMonth()];
             const cycle1Debts: any[] = [];
             const cycle2Debts: any[] = [];
 
-            allDebts.forEach(d => {
+            currentMonthDebts.forEach(d => {
                 let active = false;
                 let val = d.installmentAmount;
                 let curr = 0;
@@ -299,7 +421,7 @@ export const PlanningScreen = () => {
                 else {
                     const mIdx = MONTHS_FULL.indexOf(d.billingMonth || '');
                     if (mIdx !== -1) {
-                        let diff = mIdx - new Date().getMonth();
+                        let diff = mIdx - currentDate.getMonth();
                         if (diff < 0) diff += 12;
                         if (i >= diff) {
                             const relIdx = i - diff;
@@ -315,15 +437,15 @@ export const PlanningScreen = () => {
                 }
             });
 
-            const c1Incomes = fixedIncomes.filter(t => t.cycle === 'day_05').map(t => ({ ...t, amount: t.amount }));
-            const c2Incomes = fixedIncomes.filter(t => t.cycle === 'day_20').map(t => ({ ...t, amount: t.amount }));
+            const c1Incomes = currentMonthFixedIncomes.filter(t => t.cycle === 'day_05').map(t => ({ ...t, amount: t.amount }));
+            const c2Incomes = currentMonthFixedIncomes.filter(t => t.cycle === 'day_20').map(t => ({ ...t, amount: t.amount }));
             const c1 = getCycleStats(cycle1Debts, c1Incomes);
             const c2 = getCycleStats(cycle2Debts, c2Incomes);
 
             arr.push({ label: mLabel, date: fDate, cycle1: { items: cycle1Debts, ...c1, incomes: c1Incomes }, cycle2: { items: cycle2Debts, ...c2, incomes: c2Incomes }, totalBal: c1.bal + c2.bal });
         }
         return arr;
-    }, [state]);
+    }, [state.cycles, currentCycles, currentDate]);
 
     // Actions
     const saveConfig = () => {
@@ -335,7 +457,12 @@ export const PlanningScreen = () => {
     const addInc = () => {
         const val = parseAmount(incomeAmount);
         if (!incomeName || val <= 0) return toast.error("Preencha campos corretamente.");
-        addTransaction({ description: incomeName, amount: val, type: 'income', category: 'Salário', date: new Date().toISOString(), isFixed: isIncomeFixed, cycle: state.settings.hasAdvance ? incomeCycle : 'day_05' });
+        let targetDate = new Date();
+        if (targetDate.getMonth() !== currentDate.getMonth() || targetDate.getFullYear() !== currentDate.getFullYear()) {
+             targetDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 10);
+        }
+
+        addTransaction({ description: incomeName, amount: val, type: 'income', category: 'Salário', date: targetDate.toISOString(), isFixed: isIncomeFixed, cycle: state.settings.hasAdvance ? incomeCycle : 'day_05' });
         setIncomeName(''); setIncomeAmount(''); toast.success("Renda adicionada");
     }
 
@@ -352,6 +479,7 @@ export const PlanningScreen = () => {
             finalInst = iVal;
             finalTotal = count;
         }
+
         addDebt({
             name: fName, totalAmount: total, installmentAmount: finalInst,
             dueDate: isFixed ? 'Mensal' : (isInstallment ? `Fat. ${billingMonth}` : debtDate),
@@ -418,7 +546,16 @@ export const PlanningScreen = () => {
     return (
         <div className="space-y-6 pb-24 relative">
             {/* Header / Tabs */}
-            <div className="flex justify-center relative mb-6">
+            <div className="flex flex-col items-center gap-4 relative mb-6">
+                 {/* Navigation Month */}
+                 <div className="flex items-center gap-4 bg-white p-2 rounded-xl shadow-sm border">
+                    <Button variant="ghost" size="icon" onClick={() => changeMonth('prev')}><ChevronLeft className="h-5 w-5 text-slate-600" /></Button>
+                    <div className="text-center w-32">
+                        <span className="block text-sm font-bold text-slate-800 uppercase tracking-wider">{currentMonthLabel}</span>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => changeMonth('next')}><ChevronRight className="h-5 w-5 text-slate-600" /></Button>
+                 </div>
+
                 <div className="bg-slate-200 p-1 rounded-full flex gap-1 shadow-inner">
                     <button onClick={() => setActiveTab('current')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'current' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}`}>Mês Atual</button>
                     <button onClick={() => setActiveTab('projection')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'projection' ? 'bg-white shadow text-purple-700' : 'text-slate-500'}`}>Projeção</button>
@@ -429,6 +566,9 @@ export const PlanningScreen = () => {
                 </div>
             </div>
 
+            {/* Importer Modal */}
+            {showImporter && <UniversalImporter onImport={(items) => { addBatchedTransactions(items); toast.success(`${items.length} itens importados!`); }} onClose={() => setShowImporter(false)} />}
+
             {/* Configurações Modal */}
             {showSettings && (
                 <div onClick={() => setShowSettings(false)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in-50">
@@ -438,6 +578,22 @@ export const PlanningScreen = () => {
                             <Button variant="ghost" size="sm" onClick={() => setShowSettings(false)}><X /></Button>
                         </CardHeader>
                         <CardContent className="space-y-6">
+                            {/* BACKUP SECTION */}
+                            <div className="border-b pb-4">
+                                <Label className="mb-2 block">Backup & Segurança</Label>
+                                <div className="flex gap-2">
+                                    <Button variant="outline" size="sm" onClick={handleExportBackup} className="flex-1 text-slate-700">
+                                        <Download className="h-4 w-4 mr-2"/> Exportar Backup
+                                    </Button>
+                                    <div className="flex-1 relative">
+                                        <input type="file" accept=".json" onChange={handleImportBackup} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                                        <Button variant="outline" size="sm" className="w-full text-slate-700">
+                                            <RotateCcw className="h-4 w-4 mr-2"/> Restaurar Backup
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b pb-4">
                                 <div><Label>Dia Salário</Label><Input type="number" value={confSal} onChange={e => setConfSal(Number(e.target.value))} /></div>
                                 {hasAdv && <div><Label>Dia Vale</Label><Input type="number" value={confAdv} onChange={e => setConfAdv(Number(e.target.value))} /></div>}
@@ -515,20 +671,29 @@ export const PlanningScreen = () => {
                 <div className="space-y-6 animate-in fade-in">
                     <div className={`grid grid-cols-1 ${state.settings.hasAdvance ? 'md:grid-cols-2' : ''} gap-4`}>
                         <CycleSection
-                            title={`Ciclo ${state.settings.salaryDay}`} stats={currentMonthStats.c1} items={state.cycles[0].debts} incomes={state.cycles[0].transactions}
+                            title={`Ciclo ${state.settings.salaryDay}`} stats={currentMonthStats.c1} items={currentCycles[0]?.debts || []} incomes={currentCycles[0]?.transactions || []}
                             colorClass="bg-blue-50 border-blue-100" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories}
                             onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
+                            onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
                         />
                         {state.settings.hasAdvance && <CycleSection
-                            title={`Ciclo ${state.settings.advanceDay}`} stats={currentMonthStats.c2} items={state.cycles[1].debts} incomes={state.cycles[1].transactions}
+                            title={`Ciclo ${state.settings.advanceDay}`} stats={currentMonthStats.c2} items={currentCycles[1]?.debts || []} incomes={currentCycles[1]?.transactions || []}
                             colorClass="bg-emerald-50 border-emerald-100" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories}
                             onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
+                            onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
                         />}
                     </div>
 
                     <Card className="border-t-4 border-t-slate-800 shadow-sm">
                         <CardHeader className="pb-2"><CardTitle className="text-base uppercase tracking-wide text-slate-600">Novo Lançamento</CardTitle></CardHeader>
                         <CardContent className="space-y-6">
+                            {/* BOTÃO DE IMPORTAÇÃO ESTRATÉGICO */}
+                            <div className="flex justify-center -mt-2 mb-2">
+                                <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50 w-full md:w-auto" onClick={() => setShowImporter(true)}>
+                                    <Upload className="h-4 w-4 mr-2"/> Importar Extrato / Arquivo
+                                </Button>
+                            </div>
+
                             <div className="p-4 bg-green-50 rounded-lg border border-green-100 transition-all hover:shadow-sm">
                                 <div className="flex flex-col md:flex-row gap-3 items-end">
                                     <div className="w-full"><Label className="text-xs text-green-800 font-bold mb-1 block">DESCRIÇÃO RENDA</Label><Input placeholder="Ex: Salário" value={incomeName} onChange={e => setIncomeName(e.target.value)} className="bg-white border-green-200 focus:border-green-500" /></div>

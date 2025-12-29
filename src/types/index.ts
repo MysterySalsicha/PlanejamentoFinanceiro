@@ -9,6 +9,8 @@ export interface Transaction {
     date: string;
     isFixed?: boolean;
     cycle: 'day_05' | 'day_20';
+    isPaid?: boolean;
+    needsReview?: boolean;
 }
   
 export interface Debt {
@@ -26,6 +28,8 @@ export interface Debt {
     category?: string;
     cycle: 'day_05' | 'day_20';
     paymentMethod?: string;
+    isPaid?: boolean;
+    needsReview?: boolean;
 }
   
 export interface Category {
@@ -37,6 +41,7 @@ export interface Category {
   
 export interface FinancialCycle {
     id: string;
+    month: string; // Format: YYYY-MM
     type: 'day_05' | 'day_20';
     transactions: Transaction[];
     debts: Debt[];
@@ -66,4 +71,5 @@ export interface ImportedTransaction {
     category: string;
     installments?: { current: number, total: number };
     isDuplicate?: boolean;
+    needsReview?: boolean;
 }
