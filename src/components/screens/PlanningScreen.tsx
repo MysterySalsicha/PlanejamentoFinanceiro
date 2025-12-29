@@ -11,6 +11,8 @@ import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimiz
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { toast } from 'sonner';
 import { UniversalImporter } from '@/components/UniversalImporter';
+import { EditDebtModal } from '@/components/modals/EditDebtModal'; // Import Component
+import { isOverdue } from '@/lib/dateUtils'; // Import Helper
 
 // Funções de máscara de valor
 const handleAmountChange = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,14 +68,10 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 
     const activeSlice = stats.chartData.find((d: any) => d.name === drillCategory);
 
-    const isOverdue = (dueDate: string, isPaid?: boolean) => {
-        if (isPaid) return false;
-        const today = new Date();
-        today.setHours(0,0,0,0);
-        const due = new Date(dueDate);
-        due.setHours(0,0,0,0);
-        return today > due;
-    };
+    // Calculate Overdue Count
+    const overdueCount = useMemo(() => {
+        return filteredItems.filter((it: any) => isOverdue(it.dueDate, it.isPaid)).length;
+    }, [filteredItems]);
 
     // PAID Checkbox Component
     const PaidCheckbox = ({ checked, onClick }: { checked: boolean, onClick: () => void }) => {
@@ -95,9 +93,16 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                 <div className="z-10">
                     <h3 className="text-xs font-black uppercase opacity-70 tracking-widest">{title}</h3>
                     <div className={`text-2xl font-bold mt-1 ${stats.bal >= 0 ? 'text-slate-800' : 'text-red-600'}`}>{formatCurrencyBRL(stats.bal)}</div>
-                    <div className="flex gap-2 text-xs mt-1 opacity-80">
-                        <span className="text-green-700 font-bold">+{formatCurrencyBRL(stats.inc)}</span>
-                        <span className="text-red-600 font-bold">-{formatCurrencyBRL(stats.exp)}</span>
+                    <div className="flex flex-col gap-1 mt-1">
+                        <div className="flex gap-2 text-xs opacity-80">
+                            <span className="text-green-700 font-bold">+{formatCurrencyBRL(stats.inc)}</span>
+                            <span className="text-red-600 font-bold">-{formatCurrencyBRL(stats.exp)}</span>
+                        </div>
+                        {overdueCount > 0 && !isProjection && (
+                            <div className="flex items-center gap-1 text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full w-fit font-bold border border-red-200 animate-in fade-in slide-in-from-left-2">
+                                <AlertTriangle className="h-3 w-3" /> {overdueCount} contas vencidas
+                            </div>
+                        )}
                     </div>
                 </div>
                 <button onClick={toggleExpand} className="absolute top-3 right-3 p-1 rounded-full bg-white/50 hover:bg-white text-slate-500 z-20">
@@ -394,7 +399,12 @@ export const PlanningScreen = () => {
                 if (e.target?.result) {
                     try {
                         const parsed = JSON.parse(e.target.result as string);
+                        // Validate basic structure
                         if (parsed.cycles && parsed.categories && parsed.settings) {
+                            // We can use a context method to restore, but since useFinancials doesn't expose one yet (oops),
+                            // we'll rely on localStorage reload hack or add `restoreState` to context.
+                            // Ideally, add `restoreState` to context.
+                            // For now, let's just save to localStorage and reload page.
                             localStorage.setItem('finance_db_v7', JSON.stringify(parsed));
                             window.location.reload();
                         } else {
@@ -419,6 +429,7 @@ export const PlanningScreen = () => {
     };
 
     const currentMonthStats = useMemo(() => {
+        // Safe access to array elements
         const c1Data = currentCycles[0] || { debts: [], transactions: [] };
         const c2Data = currentCycles[1] || { debts: [], transactions: [] };
 
@@ -445,70 +456,43 @@ export const PlanningScreen = () => {
 
     const projectionData = useMemo(() => {
         const arr = [];
-
-        // Use currentDate as base for projection
-        const baseDate = currentDate;
-
+        const today = new Date();
         const allDebts = state.cycles.flatMap(c => c.debts);
         const allTx = state.cycles.flatMap(c => c.transactions);
 
-        // Filter unique recurring items (approximation: items with isFixed)
-        // Ideally we should have a separate list of recurring items.
-        // For now, we gather all Fixed items from HISTORY (all cycles).
-        // To avoid duplicates, we might want to dedupe by name?
-        // Or just take the ones from the current cycle?
-        // Let's stick to: Take fixed items from the current month view.
+        const fixedIncomes = [...allTx.filter(t => t.isFixed).map(t => ({ ...t, cycle: t.cycle }))];
 
-        const currentMonthDebts = [...currentCycles[0].debts, ...currentCycles[1].debts];
-        const currentMonthFixedIncomes = [...currentCycles[0].transactions.filter(t => t.isFixed), ...currentCycles[1].transactions.filter(t => t.isFixed)];
+        const c1Data = currentCycles[0] || { debts: [], transactions: [] };
+        const c2Data = currentCycles[1] || { debts: [], transactions: [] };
+
+        const currentMonthDebts = [...c1Data.debts, ...c2Data.debts];
+        const currentMonthFixedIncomes = [...c1Data.transactions.filter(t => t.isFixed), ...c2Data.transactions.filter(t => t.isFixed)];
 
         for (let i = 0; i < 12; i++) {
-            const fDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + i, 1);
+            const fDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + i, 1);
             const mLabel = MONTHS_FULL[fDate.getMonth()];
             const cycle1Debts: any[] = [];
             const cycle2Debts: any[] = [];
 
-            // Add Recurring Debts
             currentMonthDebts.forEach(d => {
                 let active = false;
                 let val = d.installmentAmount;
                 let curr = 0;
-
-                if (d.isFixed) {
-                    active = true;
-                } else {
-                    // Installment logic
-                    // We need to calculate if the debt is active in fDate (Month i)
-                    // d.billingMonth is the start month.
-                    // Find index of start month.
-                    // This logic relies on month names which is fragile if years wrap.
-                    // Better logic: Calculate difference in months from Purchase/Start Date.
-
-                    if (d.totalInstallments > 1 && d.purchaseDate) {
-                        const start = new Date(d.purchaseDate); // Or Due Date of first installment
-                        // Actually d.dueDate might be the due date of the specific installment in the current cycle.
-                        // We need the start date of the installments series.
-                        // If we only have the current item, we can infer start date from currentInstallment.
-                        // start_month = current_month - (currentInstallment - 1)
-
-                        const currentMonthDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
-                        const startMonthDate = new Date(currentMonthDate);
-                        startMonthDate.setMonth(startMonthDate.getMonth() - (d.currentInstallment - 1));
-
-                        const monthsDiff = (fDate.getFullYear() - startMonthDate.getFullYear()) * 12 + (fDate.getMonth() - startMonthDate.getMonth());
-
-                        if (monthsDiff >= 0 && monthsDiff < d.totalInstallments) {
-                            active = true;
-                            curr = monthsDiff + 1;
+                if (d.isFixed) { active = true; }
+                else {
+                    const mIdx = MONTHS_FULL.indexOf(d.billingMonth || '');
+                    if (mIdx !== -1) {
+                        let diff = mIdx - currentDate.getMonth();
+                        if (diff < 0) diff += 12;
+                        if (i >= diff) {
+                            const relIdx = i - diff;
+                            curr = d.currentInstallment + relIdx;
+                            if (curr <= d.totalInstallments) active = true;
                         }
                     }
                 }
-
                 if (active) {
                     const item = { ...d, currentDisplay: curr, displayVal: val };
-                    // Items created in projection are needsReview
-                    if (!item.id) item.needsReview = true; // Just in case
-
                     if (d.cycle === 'day_05') cycle1Debts.push(item);
                     else cycle2Debts.push(item);
                 }
@@ -535,7 +519,6 @@ export const PlanningScreen = () => {
         const val = parseAmount(incomeAmount);
         if (!incomeName || val <= 0) return toast.error("Preencha campos corretamente.");
         let targetDate = new Date();
-        // Use currently viewed month
         if (targetDate.getMonth() !== currentDate.getMonth() || targetDate.getFullYear() !== currentDate.getFullYear()) {
              targetDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 10);
         }
@@ -558,13 +541,6 @@ export const PlanningScreen = () => {
             finalTotal = count;
         }
 
-        let targetDate = new Date();
-        // Check if user set a specific date different from today?
-        // debtDate is controlled input.
-        // If user wants to add to the VIEWED month, they should select the date or we default to the view.
-        // We will respect `debtDate` but we should probably default `debtDate` to the view month when the view changes?
-        // For now, respect the explicit input.
-
         addDebt({
             name: fName, totalAmount: total, installmentAmount: finalInst,
             dueDate: isFixed ? 'Mensal' : (isInstallment ? `Fat. ${billingMonth}` : debtDate),
@@ -582,34 +558,12 @@ export const PlanningScreen = () => {
     const openEditDebt = (d: Debt) => { setEditingItem({ ...d }); setEditType('debt'); setIsEditModalOpen(true); }
     const openEditInc = (t: Transaction) => { setEditingItem({ ...t }); setEditType('income'); setIsEditModalOpen(true); }
 
-    const saveEdit = () => {
-        if (!editingItem) return;
-
-        if (editType === 'debt' && 'installmentAmount' in editingItem) {
-            const parsedAmount = parseAmount(String(editingItem.installmentAmount));
-            // Check for installment conversion logic here?
-            // If user changes from normal to installment in edit?
-            // For now, just save.
-
-            const itemToSave = { ...editingItem, installmentAmount: parsedAmount };
-
-            // Validation: if fields are missing, keep needsReview. Else remove.
-            if (itemToSave.name && itemToSave.category && parsedAmount > 0) {
-                itemToSave.needsReview = false;
-            }
-
-            updateDebt(itemToSave.id, itemToSave);
-        } else if (editType === 'income' && 'amount' in editingItem) {
-            const parsedAmount = parseAmount(String(editingItem.amount));
-            const itemToSave = { ...editingItem, amount: parsedAmount };
-
-            if (itemToSave.description && itemToSave.category && parsedAmount > 0) {
-                itemToSave.needsReview = false;
-            }
-
-            updateTransaction(itemToSave.id, itemToSave);
+    const saveEdit = (updated: any) => {
+        if (editType === 'debt') {
+            updateDebt(updated.id, updated);
+        } else {
+            updateTransaction(updated.id, updated);
         }
-
         setIsEditModalOpen(false); 
         setEditingItem(null); 
         toast.success("Salvo");
@@ -639,9 +593,14 @@ export const PlanningScreen = () => {
 
     const handleEditItemAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const rawValue = e.target.value.replace(/\D/g, '');
+
         setEditingItem(prev => {
             if (!prev) return null;
-            if (!rawValue) return { ...prev, [editType === 'debt' ? 'installmentAmount' : 'amount']: '' as any };
+
+            if (!rawValue) {
+                return { ...prev, [editType === 'debt' ? 'installmentAmount' : 'amount']: '' as any };
+            }
+
             const numericValue = parseInt(rawValue, 10);
             const formattedValue = (numericValue / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             return { ...prev, [editType === 'debt' ? 'installmentAmount' : 'amount']: formattedValue as any };
@@ -663,7 +622,7 @@ export const PlanningScreen = () => {
 
                 <div className="bg-slate-200 p-1 rounded-full flex gap-1 shadow-inner">
                     <button onClick={() => setActiveTab('current')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'current' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}`}>Mês Atual</button>
-                    <button onClick={() => setActiveTab('projection')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'projection' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}`}>Projeção</button>
+                    <button onClick={() => setActiveTab('projection')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'projection' ? 'bg-white shadow text-purple-700' : 'text-slate-500'}`}>Projeção</button>
                 </div>
                 <div className="absolute right-0 top-0 flex items-center">
                     <Button variant="ghost" size="icon" className="text-slate-400 hover:bg-slate-100" onClick={() => setShowHelpModal(true)}><HelpCircle className="h-5 w-5" /></Button>
@@ -734,52 +693,8 @@ export const PlanningScreen = () => {
                 </div>
             )}
 
-            {/* Edit Modal */}
-            {isEditModalOpen && editingItem && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <Card className="w-full max-w-md bg-white shadow-2xl animate-in zoom-in-95">
-                        <CardHeader className="flex flex-row justify-between pb-2">
-                            <CardTitle>Editar {editType === 'debt' ? 'Conta' : 'Renda'}</CardTitle>
-                            <Button variant="ghost" size="sm" onClick={() => setIsEditModalOpen(false)}><X /></Button>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            {editType === 'debt' ? (
-                                <>
-                                    <Input value={(editingItem as Debt).name} onChange={e => setEditingItem({ ...editingItem, name: e.target.value })} placeholder="Nome da Dívida" />
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <Input type="text" inputMode="decimal" value={(editingItem as Debt).installmentAmount as any} onChange={handleEditItemAmountChange} />
-                                        <select className="border rounded px-2" value={editingItem.category} onChange={e => setEditingItem({ ...editingItem, category: e.target.value })}>{state.categories.filter(c => c.type === 'expense').map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2"><div><Label className="text-[10px]">Compra</Label><Input type="date" value={(editingItem as Debt).purchaseDate} onChange={e => setEditingItem({ ...editingItem, purchaseDate: e.target.value })} /></div><div><Label className="text-[10px]">Vencimento</Label><Input value={(editingItem as Debt).dueDate} onChange={e => setEditingItem({ ...editingItem, dueDate: e.target.value })} /></div></div>
-                                    <div className="grid grid-cols-2 gap-2"><div><Label className="text-[10px]">Ciclo</Label><select className="w-full border rounded px-2 h-10 text-sm" value={editingItem.cycle} onChange={e => setEditingItem({ ...editingItem, cycle: e.target.value as any })}><option value="day_05">Dia {state.settings.salaryDay}</option>{state.settings.hasAdvance && <option value="day_20">Dia {state.settings.advanceDay}</option>}</select></div><div><Label className="text-[10px]">Método</Label><select className="w-full border rounded px-2 h-10 text-sm" value={(editingItem as Debt).paymentMethod} onChange={e => setEditingItem({ ...editingItem, paymentMethod: e.target.value })}><option value="Cartão">Cartão</option><option value="Pix">Pix</option><option value="Boleto">Boleto</option></select></div></div>
-                                    {/* Additional fields for editing (Fixed, Installments) */}
-                                    <div className="flex gap-4 border-t pt-2">
-                                        <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={editingItem.isFixed} onChange={e => setEditingItem({ ...editingItem, isFixed: e.target.checked })} /> Fixa</label>
-                                        <div className="flex items-center gap-2 text-xs">
-                                            <span>Parc:</span>
-                                            <input className="w-10 border rounded px-1" type="number" value={(editingItem as Debt).currentInstallment} onChange={e => setEditingItem({ ...editingItem, currentInstallment: parseInt(e.target.value) })} />
-                                            <span>/</span>
-                                            <input className="w-10 border rounded px-1" type="number" value={(editingItem as Debt).totalInstallments} onChange={e => setEditingItem({ ...editingItem, totalInstallments: parseInt(e.target.value) })} />
-                                        </div>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <Input value={(editingItem as Transaction).description} onChange={e => setEditingItem({ ...editingItem, description: e.target.value })} placeholder="Descrição da Renda" />
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <Input type="text" inputMode="decimal" value={(editingItem as Transaction).amount as any} onChange={handleEditItemAmountChange} />
-                                    </div>
-                                    <div className="flex items-center gap-2 mt-2">
-                                        <input type="checkbox" checked={editingItem.isFixed} onChange={e => setEditingItem({ ...editingItem, isFixed: e.target.checked })} className="accent-green-600" />
-                                        <span className="text-sm">Renda Fixa?</span>
-                                    </div>
-                                </>
-                            )}
-                            <Button className="w-full bg-blue-600 mt-2" onClick={saveEdit}>Salvar Alterações</Button>
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
+            {/* Edit Modal (Replaces inline modal) */}
+            <EditDebtModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} item={editingItem} type={editType} onSave={saveEdit} />
 
             {/* TAB: MÊS ATUAL */}
             {activeTab === 'current' && (
