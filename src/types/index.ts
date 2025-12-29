@@ -9,6 +9,7 @@ export interface Transaction {
     date: string;
     isFixed?: boolean;
     cycle: 'day_05' | 'day_20';
+    needsReview?: boolean;
 }
   
 export interface Debt {
@@ -26,6 +27,8 @@ export interface Debt {
     category?: string;
     cycle: 'day_05' | 'day_20';
     paymentMethod?: string;
+    isPaid?: boolean;
+    needsReview?: boolean;
 }
   
 export interface Category {
@@ -54,6 +57,7 @@ export interface FinancialState {
     categories: Category[];
     settings: UserSettings;
     categoryMappings: Record<string, string>; // NOVO: Memória de Categorias
+    viewDate?: string;
 }
 
 export interface ImportedTransaction {

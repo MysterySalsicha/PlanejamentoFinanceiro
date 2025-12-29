@@ -7,9 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatCurrencyBRL, parseMoney, formatMoney } from '@/lib/utils';
-import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimize2, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
+import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimize2, ChevronDown, ChevronUp, HelpCircle, ChevronLeft, ChevronRight, TriangleAlert, Flame } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { toast } from 'sonner';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 // Funções de máscara de valor (idênticas às de AddTransactionModal)
 const handleAmountChange = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -30,7 +32,7 @@ const parseAmount = (formattedAmount: string): number => {
 };
 
 // --- COMPONENTE CICLO (Card de Estatísticas) ---
-const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, onEditDebt, onEditInc, onDeleteDebt, onDeleteInc, onMove, categories, isProjection }: any) => {
+const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, onEditDebt, onEditInc, onDeleteDebt, onDeleteInc, onMove, categories, isProjection, showPaymentControl, onTogglePaid }: any) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
@@ -52,6 +54,9 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
     }, [items, drillCategory]);
 
     const activeSlice = stats.chartData.find((d: any) => d.name === drillCategory);
+
+    // Determines if we should show controls: Not projection OR explicitly shown
+    const showControls = !isProjection || showPaymentControl;
 
     return (
         <div className={`rounded-xl border p-4 ${colorClass} transition-all duration-500 ease-in-out relative flex flex-col ${isExpanded ? 'h-auto min-h-[500px] shadow-lg ring-1 ring-black/5' : 'h-48 hover:shadow-md'}`}>
@@ -118,10 +123,13 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                             <div className="space-y-1">
                                 {incomes.map((inc: any) => (
                                     <div key={inc.id} className="flex justify-between items-center bg-green-50/50 p-2 rounded border border-green-100/50 text-xs">
-                                        <span className="font-medium text-green-900">{inc.description}</span>
+                                        <div className="flex items-center gap-2">
+                                            {inc.needsReview && <TriangleAlert className="h-3 w-3 text-yellow-500" />}
+                                            <span className="font-medium text-green-900">{inc.description}</span>
+                                        </div>
                                         <div className="flex items-center gap-2">
                                             <span className="font-bold text-green-700">{formatCurrencyBRL(inc.amount)}</span>
-                                            {!isProjection && (
+                                            {showControls && (
                                                 <div className="flex gap-1">
                                                     <Pencil className="h-3 w-3 text-blue-400 cursor-pointer" onClick={() => onEditInc(inc)} />
                                                     <Trash2 className="h-3 w-3 text-red-400 cursor-pointer" onClick={() => onDeleteInc(inc.id)} />
@@ -138,19 +146,37 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                     <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar">
                         <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2 border-b pb-1 sticky top-0 bg-inherit">Saídas {drillCategory ? `(${drillCategory})` : ''}</h4>
                         <div className="space-y-2">
-                            {filteredItems.map((it: any) => (
+                            {filteredItems.map((it: any) => {
+                                const todayStr = new Date().toISOString().split('T')[0];
+                                const isOverdue = !it.isPaid && it.dueDate < todayStr;
+                                return (
                                 <div key={it.id} className="bg-white p-2.5 rounded-lg shadow-sm border border-slate-100 text-xs hover:border-slate-300 transition-colors flex justify-between items-start">
                                     <div className="flex-1">
-                                        <div className="font-bold text-slate-700">{it.name} {it.currentDisplay && <span className="text-[10px] font-normal text-slate-400">({it.currentDisplay}/{it.totalInstallments})</span>}</div>
+                                        <div className="flex items-center gap-1 font-bold text-slate-700">
+                                            {it.needsReview && <TriangleAlert className="h-3 w-3 text-yellow-500" />}
+                                            <span className={it.isPaid ? 'line-through opacity-50' : ''}>{it.name}</span>
+                                            {it.currentDisplay && <span className="text-[10px] font-normal text-slate-400">({it.currentDisplay}/{it.totalInstallments})</span>}
+                                        </div>
                                         <div className="text-[10px] text-slate-400 mt-0.5 flex gap-2 items-center">
-                                            <span>Venc: {it.dueDate}</span>
+                                            <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-600 font-bold' : ''}`}>
+                                                {isOverdue && <Flame className="h-3 w-3 fill-red-600" />}
+                                                Venc: {it.dueDate}
+                                            </span>
                                             <span className="text-[9px] px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCatColor(it.category || 'Outros') }}>{it.category || 'Outros'}</span>
                                         </div>
                                     </div>
                                     <div className="text-right pl-2">
                                         <div className="font-bold text-red-600">-{formatCurrencyBRL(it.displayVal || it.installmentAmount)}</div>
-                                        {!isProjection && (
-                                            <div className="flex gap-2 mt-1 justify-end">
+                                        {showControls && (
+                                            <div className="flex gap-2 mt-1 justify-end items-center">
+                                                {/* Checkbox Pagar - ONLY for debts */}
+                                                <input
+                                                    type="checkbox"
+                                                    checked={!!it.isPaid}
+                                                    onChange={(e) => onTogglePaid && onTogglePaid(it.id, e.target.checked)}
+                                                    className="w-3.5 h-3.5 accent-emerald-500 rounded cursor-pointer"
+                                                    title="Marcar como Pago"
+                                                />
                                                 <Pencil className="h-3.5 w-3.5 text-slate-400 hover:text-blue-500 cursor-pointer" onClick={() => onEditDebt(it)} />
                                                 <Trash2 className="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer" onClick={() => onDeleteDebt(it.id)} />
                                                 {hasAdvance && <RefreshCw className="h-3.5 w-3.5 text-slate-400 hover:text-orange-500 cursor-pointer" onClick={() => onMove(it.id)} />}
@@ -158,7 +184,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                         )}
                                     </div>
                                 </div>
-                            ))}
+                            )})}
                             {filteredItems.length === 0 && <div className="text-center text-xs text-slate-400 py-4">Nenhuma conta encontrada.</div>}
                         </div>
                     </div>
@@ -169,7 +195,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 };
 
 export const PlanningScreen = () => {
-    const { state, updateSettings, addCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, deleteDebt, updateDebt, switchCycle, clearDatabase } = useFinancials();
+    const { state, updateSettings, addCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, deleteDebt, updateDebt, switchCycle, clearDatabase, setViewDate } = useFinancials();
 
     const [activeTab, setActiveTab] = useState<'current' | 'projection'>('current');
     const [showSettings, setShowSettings] = useState(false);
@@ -210,6 +236,25 @@ export const PlanningScreen = () => {
     const [quickDesc, setQuickDesc] = useState('');
     const [quickVal, setQuickVal] = useState('');
     const [quickCycle, setQuickCycle] = useState<'day_05' | 'day_20'>('day_05');
+    const [quickType, setQuickType] = useState<'expense' | 'income'>('expense');
+
+    // Navigation handlers
+    const nextMonth = () => {
+        const current = state.viewDate ? new Date(state.viewDate) : new Date();
+        const next = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+        setViewDate(next.toISOString());
+    };
+
+    const prevMonth = () => {
+        const current = state.viewDate ? new Date(state.viewDate) : new Date();
+        const prev = new Date(current.getFullYear(), current.getMonth() - 1, 1);
+        setViewDate(prev.toISOString());
+    };
+
+    // Toggle Paid handler
+    const handleTogglePaid = (id: string, isPaid: boolean) => {
+        updateDebt(id, { isPaid });
+    };
 
     // Auto-cálculo parcelas
     useEffect(() => {
@@ -281,29 +326,40 @@ export const PlanningScreen = () => {
 
     const projectionData = useMemo(() => {
         const arr = [];
-        const today = new Date();
+        const viewDate = state.viewDate ? new Date(state.viewDate) : new Date();
+        // Ensure we start from the viewDate, but logic for "diff" depends on current real month vs projection month
+        const todayReal = new Date();
+
         const allDebts = [...state.cycles[0].debts, ...state.cycles[1].debts];
         const fixedIncomes = [...state.cycles[0].transactions.filter(t => t.isFixed).map(t => ({ ...t, cycle: 'day_05' })), ...state.cycles[1].transactions.filter(t => t.isFixed).map(t => ({ ...t, cycle: 'day_20' }))];
 
         for (let i = 0; i < 6; i++) {
-            const fDate = new Date(today.getFullYear(), today.getMonth() + i, 1);
+            const fDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + i, 1);
             const mLabel = MONTHS_FULL[fDate.getMonth()];
             const cycle1Debts: any[] = [];
             const cycle2Debts: any[] = [];
+
+            // Calculate month difference relative to NOW (real time) to find correct installment
+            let monthsDiffFromNow = (fDate.getFullYear() - todayReal.getFullYear()) * 12 + (fDate.getMonth() - todayReal.getMonth());
 
             allDebts.forEach(d => {
                 let active = false;
                 let val = d.installmentAmount;
                 let curr = 0;
+
+                // Keep showing debt if it's not paid yet, even if in past (logic simplification) or if it projects into this month
+
                 if (d.isFixed) { active = true; }
                 else {
                     const mIdx = MONTHS_FULL.indexOf(d.billingMonth || '');
                     if (mIdx !== -1) {
-                        let diff = mIdx - new Date().getMonth();
-                        if (diff < 0) diff += 12;
-                        if (i >= diff) {
-                            const relIdx = i - diff;
-                            curr = d.currentInstallment + relIdx;
+                        // Logic to find if this debt installment falls in fDate
+
+                        // Simplified projection logic:
+                        // Calculate offset of fDate from the debt's current status (which is basically 'now').
+
+                        if (monthsDiffFromNow >= 0) {
+                            curr = d.currentInstallment + monthsDiffFromNow;
                             if (curr <= d.totalInstallments) active = true;
                         }
                     }
@@ -390,13 +446,26 @@ export const PlanningScreen = () => {
     const quickAddProj = (monthIdx: number, dateObj: Date) => {
         const val = parseAmount(quickVal);
         if (!quickDesc || val <= 0) return;
-        addDebt({
-            name: quickDesc, totalAmount: val, installmentAmount: val,
-            dueDate: 'Previsto', purchaseDate: dateObj.toISOString(),
-            currentInstallment: 1, totalInstallments: 1, isFixed: false,
-            billingMonth: MONTHS_FULL[dateObj.getMonth()], category: 'Outros', cycle: quickCycle
-        });
-        setQuickDesc(''); setQuickVal(''); toast.success("Previsão adicionada");
+
+        if (quickType === 'expense') {
+            addDebt({
+                name: quickDesc, totalAmount: val, installmentAmount: val,
+                dueDate: 'Previsto', purchaseDate: dateObj.toISOString(),
+                currentInstallment: 1, totalInstallments: 1, isFixed: false,
+                billingMonth: MONTHS_FULL[dateObj.getMonth()], category: 'Outros', cycle: quickCycle,
+                needsReview: true
+            });
+            toast.success("Saída prevista adicionada");
+        } else {
+             addTransaction({
+                description: quickDesc, amount: val, type: 'income', category: 'Outros',
+                date: dateObj.toISOString(), isFixed: false, cycle: quickCycle,
+                needsReview: true
+            });
+            toast.success("Entrada prevista adicionada");
+        }
+
+        setQuickDesc(''); setQuickVal('');
     }
 
     const handleEditItemAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -421,7 +490,7 @@ export const PlanningScreen = () => {
             <div className="flex justify-center relative mb-6">
                 <div className="bg-slate-200 p-1 rounded-full flex gap-1 shadow-inner">
                     <button onClick={() => setActiveTab('current')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'current' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}`}>Mês Atual</button>
-                    <button onClick={() => setActiveTab('projection')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'projection' ? 'bg-white shadow text-purple-700' : 'text-slate-500'}`}>Projeção</button>
+                    <button onClick={() => setActiveTab('projection')} className={`px-4 md:px-6 py-2 rounded-full text-xs md:text-sm font-bold transition-all ${activeTab === 'projection' ? 'bg-white shadow text-blue-700' : 'text-slate-500'}`}>Projeção</button>
                 </div>
                 <div className="absolute right-0 top-0 flex items-center">
                     <Button variant="ghost" size="icon" className="text-slate-400 hover:bg-slate-100" onClick={() => setShowHelpModal(true)}><HelpCircle className="h-5 w-5" /></Button>
@@ -635,33 +704,68 @@ export const PlanningScreen = () => {
 
             {/* TAB: PROJEÇÃO */}
             {activeTab === 'projection' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in">
-                    {projectionData.map((m, idx) => (
-                        <Card key={idx} className={`transition-all duration-300 border-t-4 ${m.totalBal >= 0 ? 'border-t-green-500' : 'border-t-red-500'} ${expandedMonthIndex === idx ? 'md:col-span-2 xl:col-span-3 ring-4 ring-slate-100 shadow-2xl z-10' : 'hover:shadow-lg'}`}>
-                            <CardHeader className="bg-white pb-4 cursor-pointer" onClick={() => setExpandedMonthIndex(expandedMonthIndex === idx ? null : idx)}>
-                                <div className="flex justify-between items-center">
-                                    <div><CardTitle className="text-lg font-black text-slate-700 uppercase tracking-tight">{m.label}</CardTitle><p className="text-xs text-slate-400 mt-1">{m.cycle1.items.length + m.cycle2.items.length} contas previstas</p></div>
-                                    <div className="text-right">
-                                        <span className={`block text-2xl font-bold ${m.totalBal >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrencyBRL(m.totalBal)}</span>
-                                        <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Saldo Previsto</span>
+                <div className="flex flex-col gap-6 animate-in fade-in">
+
+                    {/* NAVIGATOR (PHASE 1) */}
+                    <div className="flex items-center justify-between gap-4 bg-white p-2 rounded-xl shadow-sm border mx-auto w-full max-w-md">
+                        <Button variant="ghost" onClick={prevMonth}><ChevronLeft /></Button>
+                        <span className="font-bold text-lg capitalize text-slate-700">
+                            {format(state.viewDate ? new Date(state.viewDate) : new Date(), 'MMMM yyyy', { locale: ptBR })}
+                        </span>
+                        <Button variant="ghost" onClick={nextMonth}><ChevronRight /></Button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        {projectionData.map((m, idx) => (
+                            <Card key={idx} className={`transition-all duration-300 border-t-4 ${m.totalBal >= 0 ? 'border-t-green-500' : 'border-t-red-500'} ${expandedMonthIndex === idx ? 'md:col-span-2 xl:col-span-3 ring-4 ring-blue-100 shadow-2xl z-10' : 'hover:shadow-lg bg-slate-50/50'}`}>
+                                <CardHeader className="bg-white pb-4 cursor-pointer rounded-t-xl" onClick={() => setExpandedMonthIndex(expandedMonthIndex === idx ? null : idx)}>
+                                    <div className="flex justify-between items-center">
+                                        <div><CardTitle className="text-lg font-black text-slate-700 uppercase tracking-tight">{m.label}</CardTitle><p className="text-xs text-slate-400 mt-1">{m.cycle1.items.length + m.cycle2.items.length} contas previstas</p></div>
+                                        <div className="text-right">
+                                            <span className={`block text-2xl font-bold ${m.totalBal >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrencyBRL(m.totalBal)}</span>
+                                            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Saldo Previsto</span>
+                                        </div>
+                                        <div className="text-slate-400">{expandedMonthIndex === idx ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</div>
                                     </div>
-                                    <div className="text-slate-400">{expandedMonthIndex === idx ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</div>
-                                </div>
-                            </CardHeader>
-                            {expandedMonthIndex === idx && (
-                                <CardContent className="pt-4">
-                                    <div className={`grid grid-cols-1 ${state.settings.hasAdvance ? 'md:grid-cols-2' : ''} gap-6`}>
-                                        <CycleSection title={`Ciclo ${state.settings.salaryDay}`} stats={m.cycle1} items={m.cycle1.items} incomes={m.cycle1.incomes} colorClass="bg-blue-50/50" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories} onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle} isProjection />
-                                        {state.settings.hasAdvance && <CycleSection title={`Ciclo ${state.settings.advanceDay}`} stats={m.cycle2} items={m.cycle2.items} incomes={m.cycle2.incomes} colorClass="bg-emerald-50/50" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories} onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle} isProjection />}
-                                    </div>
-                                    <div className="mt-4 pt-3 border-t bg-slate-50 p-2 rounded-lg flex gap-2 items-center justify-between">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase hidden md:inline">Add Rápido:</span>
-                                        <div className="flex gap-2 flex-1"><Input placeholder="Desc" value={quickDesc} onChange={e => setQuickDesc(e.target.value)} className="h-8 text-xs bg-white flex-1" /><Input type="text" inputMode="decimal" placeholder="0,00" value={quickVal} onChange={handleAmountChange(setQuickVal)} className="h-8 text-xs bg-white w-20" />{state.settings.hasAdvance && <select className="h-8 text-xs border rounded px-1 bg-white" value={quickCycle} onChange={(e: any) => setQuickCycle(e.target.value)}><option value="day_05">Dia {state.settings.salaryDay}</option><option value="day_20">Dia {state.settings.advanceDay}</option></select>}<Button size="sm" className="h-8 bg-slate-800" onClick={() => quickAddProj(idx, m.date)}><Plus className="h-4 w-4" /></Button></div>
-                                    </div>
-                                </CardContent>
-                            )}
-                        </Card>
-                    ))}
+                                </CardHeader>
+                                {expandedMonthIndex === idx && (
+                                    <CardContent className="pt-4 bg-white rounded-b-xl">
+                                        <div className={`grid grid-cols-1 ${state.settings.hasAdvance ? 'md:grid-cols-2' : ''} gap-6`}>
+                                            <CycleSection
+                                                title={`Ciclo ${state.settings.salaryDay}`} stats={m.cycle1} items={m.cycle1.items} incomes={m.cycle1.incomes}
+                                                colorClass="bg-blue-50/50" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories}
+                                                onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
+                                                isProjection showPaymentControl={true} onTogglePaid={handleTogglePaid}
+                                            />
+                                            {state.settings.hasAdvance && <CycleSection
+                                                title={`Ciclo ${state.settings.advanceDay}`} stats={m.cycle2} items={m.cycle2.items} incomes={m.cycle2.incomes}
+                                                colorClass="bg-emerald-50/50" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories}
+                                                onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
+                                                isProjection showPaymentControl={true} onTogglePaid={handleTogglePaid}
+                                            />}
+                                        </div>
+                                        {/* QUICK ADD ENHANCED (PHASE 3) */}
+                                        <div className="mt-4 pt-3 border-t bg-slate-50 p-2 rounded-lg flex flex-col gap-2">
+                                            <div className="flex justify-center gap-4 mb-1">
+                                                <button onClick={() => setQuickType('expense')} className={`text-[10px] font-bold uppercase px-3 py-1 rounded-full transition-colors ${quickType === 'expense' ? 'bg-red-100 text-red-700' : 'text-slate-400 hover:bg-slate-100'}`}>Saída</button>
+                                                <button onClick={() => setQuickType('income')} className={`text-[10px] font-bold uppercase px-3 py-1 rounded-full transition-colors ${quickType === 'income' ? 'bg-green-100 text-green-700' : 'text-slate-400 hover:bg-slate-100'}`}>Entrada</button>
+                                            </div>
+                                            <div className="flex gap-2 items-center">
+                                                <div className="flex gap-2 flex-1">
+                                                    <Input placeholder={quickType === 'expense' ? "Nova Conta" : "Nova Renda"} value={quickDesc} onChange={e => setQuickDesc(e.target.value)} className="h-9 text-xs bg-white flex-1" />
+                                                    <Input type="text" inputMode="decimal" placeholder="0,00" value={quickVal} onChange={handleAmountChange(setQuickVal)} className="h-9 text-xs bg-white w-24 font-bold" />
+                                                    {state.settings.hasAdvance && <select className="h-9 text-xs border rounded px-1 bg-white" value={quickCycle} onChange={(e: any) => setQuickCycle(e.target.value)}><option value="day_05">Dia {state.settings.salaryDay}</option><option value="day_20">Dia {state.settings.advanceDay}</option></select>}
+                                                    <Button size="sm" className={`h-9 ${quickType === 'expense' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`} onClick={() => quickAddProj(idx, m.date)}>
+                                                        {quickType === 'expense' ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                )}
+                            </Card>
+                        ))}
+                    </div>
                 </div>
             )}
 
