@@ -251,6 +251,10 @@ export const PlanningScreen = () => {
         setViewDate(prev.toISOString());
     };
 
+    const resetToToday = () => {
+        setViewDate(new Date().toISOString());
+    };
+
     // Toggle Paid handler
     const handleTogglePaid = (id: string, isPaid: boolean) => {
         updateDebt(id, { isPaid });
@@ -297,10 +301,12 @@ export const PlanningScreen = () => {
 
     // Helpers
     const getCycleStats = (debts: Debt[], transactions: any[]) => {
+        // Filter debts that are "active" (currentInstallment >= 1) for the current month view
+        const activeDebts = debts.filter(d => d.currentInstallment >= 1);
         const inc = transactions.reduce((a, b) => a + b.amount, 0);
-        const exp = debts.reduce((a, b) => a + b.installmentAmount, 0);
+        const exp = activeDebts.reduce((a, b) => a + b.installmentAmount, 0);
         const cats: any = {};
-        debts.forEach(d => { const c = d.category || 'Outros'; cats[c] = (cats[c] || 0) + d.installmentAmount; });
+        activeDebts.forEach(d => { const c = d.category || 'Outros'; cats[c] = (cats[c] || 0) + d.installmentAmount; });
         const chartData = Object.entries(cats).map(([name, value]) => ({ name, value: Number(value) }));
         return { inc, exp, bal: inc - exp, chartData };
     };
@@ -320,7 +326,8 @@ export const PlanningScreen = () => {
 
     const monthItems = useMemo(() => {
         const incomes = [...state.cycles[0].transactions, ...state.cycles[1].transactions];
-        const debts = [...state.cycles[0].debts, ...state.cycles[1].debts];
+        // Only show active debts in the list
+        const debts = [...state.cycles[0].debts, ...state.cycles[1].debts].filter(d => d.currentInstallment >= 1);
         return { incomes, debts };
     }, [state.cycles]);
 
@@ -358,9 +365,13 @@ export const PlanningScreen = () => {
                         // Simplified projection logic:
                         // Calculate offset of fDate from the debt's current status (which is basically 'now').
 
-                        if (monthsDiffFromNow >= 0) {
-                            curr = d.currentInstallment + monthsDiffFromNow;
-                            if (curr <= d.totalInstallments) active = true;
+                        // We calculate the projected installment based on the time diff from "now"
+                        // d.currentInstallment is the installment relative to "now" (which might be 0 or negative for future debts)
+                        curr = d.currentInstallment + monthsDiffFromNow;
+
+                        // It is active only if it falls within the range [1, total]
+                        if (curr >= 1 && curr <= d.totalInstallments) {
+                            active = true;
                         }
                     }
                 }
@@ -448,10 +459,19 @@ export const PlanningScreen = () => {
         if (!quickDesc || val <= 0) return;
 
         if (quickType === 'expense') {
+            // Calculate months difference from TODAY to projection date
+            const today = new Date();
+            const diffMonths = (dateObj.getFullYear() - today.getFullYear()) * 12 + (dateObj.getMonth() - today.getMonth());
+
+            // If the debt is for a future month (diff > 0), the current installment (relative to today) should be <= 0.
+            // Formula: currentInstallment_today + diff = 1 (we want it to be the 1st installment on dateObj)
+            // So: currentInstallment_today = 1 - diff
+            const initialInstallment = 1 - diffMonths;
+
             addDebt({
                 name: quickDesc, totalAmount: val, installmentAmount: val,
                 dueDate: 'Previsto', purchaseDate: dateObj.toISOString(),
-                currentInstallment: 1, totalInstallments: 1, isFixed: false,
+                currentInstallment: initialInstallment, totalInstallments: 1, isFixed: false,
                 billingMonth: MONTHS_FULL[dateObj.getMonth()], category: 'Outros', cycle: quickCycle,
                 needsReview: true
             });
@@ -584,12 +604,16 @@ export const PlanningScreen = () => {
                 <div className="space-y-6 animate-in fade-in">
                     <div className={`grid grid-cols-1 ${state.settings.hasAdvance ? 'md:grid-cols-2' : ''} gap-4`}>
                         <CycleSection
-                            title={`Ciclo ${state.settings.salaryDay}`} stats={currentMonthStats.c1} items={state.cycles[0].debts} incomes={state.cycles[0].transactions}
+                            title={`Ciclo ${state.settings.salaryDay}`} stats={currentMonthStats.c1}
+                            items={state.cycles[0].debts.filter(d => d.currentInstallment >= 1)}
+                            incomes={state.cycles[0].transactions}
                             colorClass="bg-blue-50 border-blue-100" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories}
                             onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
                         />
                         {state.settings.hasAdvance && <CycleSection
-                            title={`Ciclo ${state.settings.advanceDay}`} stats={currentMonthStats.c2} items={state.cycles[1].debts} incomes={state.cycles[1].transactions}
+                            title={`Ciclo ${state.settings.advanceDay}`} stats={currentMonthStats.c2}
+                            items={state.cycles[1].debts.filter(d => d.currentInstallment >= 1)}
+                            incomes={state.cycles[1].transactions}
                             colorClass="bg-emerald-50 border-emerald-100" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories}
                             onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
                         />}
@@ -709,9 +733,9 @@ export const PlanningScreen = () => {
                     {/* NAVIGATOR (PHASE 1) */}
                     <div className="flex items-center justify-between gap-4 bg-white p-2 rounded-xl shadow-sm border mx-auto w-full max-w-md">
                         <Button variant="ghost" onClick={prevMonth}><ChevronLeft /></Button>
-                        <span className="font-bold text-lg capitalize text-slate-700">
+                        <button onClick={resetToToday} className="font-bold text-lg capitalize text-slate-700 hover:text-blue-600 transition-colors flex flex-col items-center">
                             {format(state.viewDate ? new Date(state.viewDate) : new Date(), 'MMMM yyyy', { locale: ptBR })}
-                        </span>
+                        </button>
                         <Button variant="ghost" onClick={nextMonth}><ChevronRight /></Button>
                     </div>
 
