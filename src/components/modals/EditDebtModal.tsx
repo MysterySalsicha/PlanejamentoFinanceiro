@@ -58,7 +58,6 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                     setCurrentInst(d.currentInstallment.toString());
                     setBillingMonth(d.billingMonth || MONTHS_FULL[new Date().getMonth()]);
                 } else {
-                    // If not installment, instVal is basically the amount
                     setInstVal(formatMoney(d.installmentAmount));
                     setInstCount('1');
                     setCurrentInst('1');
@@ -76,7 +75,6 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
         }
     }, [isOpen, item, type]);
 
-    // Handle Amount Mask
     const handleMoneyChange = (setter: any) => (e: React.ChangeEvent<HTMLInputElement>) => {
         const raw = e.target.value.replace(/\D/g, '');
         if(!raw) return setter('');
@@ -121,7 +119,6 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                 updated.installmentAmount = finalAmount;
             }
 
-            // Validation Logic: Remove needsReview if complete
             if (updated.name && updated.category && updated.installmentAmount > 0) {
                 updated.needsReview = false;
             }
@@ -152,66 +149,26 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                     <Button variant="ghost" size="sm" onClick={onClose}><X className="h-4 w-4" /></Button>
                 </CardHeader>
                 <CardContent className="space-y-4 pt-4">
-                    {/* Common Fields */}
-                    <div>
-                        <Label className="text-xs font-bold text-slate-500 mb-1 block">DESCRIÇÃO</Label>
-                        <Input value={name} onChange={e => setName(e.target.value)} placeholder="Nome" />
-                    </div>
-
-                    {/* Checkboxes (Only for Debts mostly, but Income can be fixed) */}
-                    <div className="flex flex-wrap items-center gap-4 bg-slate-50 p-2 rounded border">
-                        <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
-                            <input
-                                type="checkbox"
-                                checked={isFixed}
-                                onChange={e => {
-                                    setIsFixed(e.target.checked);
-                                    if (e.target.checked) setIsInstallment(false);
-                                }}
-                                className="w-4 h-4 accent-blue-600"
-                            />
-                            Fixa?
-                        </label>
-
-                        {type === 'debt' && (
-                            <>
-                                <div className="w-px h-4 bg-slate-300"></div>
-                                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={isInstallment}
-                                        onChange={e => {
-                                            setIsInstallment(e.target.checked);
-                                            if (e.target.checked) setIsFixed(false);
-                                        }}
-                                        className="w-4 h-4 accent-blue-600"
-                                    />
-                                    Parcelada?
-                                </label>
-                            </>
-                        )}
-                    </div>
-
-                    {/* Conditional Fields */}
+                    {/* Row 1: Name | Total */}
                     <div className="grid grid-cols-2 gap-3">
-                        {isInstallment ? (
-                            <>
-                                <div><Label className="text-[10px] font-bold text-slate-500">VALOR PARCELA</Label><Input value={instVal} onChange={handleMoneyChange(setInstVal)} className="font-bold text-slate-700" /></div>
-                                <div>
-                                    <Label className="text-[10px] font-bold text-slate-500">PARCELAS</Label>
-                                    <div className="flex items-center gap-1">
-                                        <Input type="number" value={currentInst} onChange={e => setCurrentInst(e.target.value)} className="w-12 text-center px-1" />
-                                        <span>/</span>
-                                        <Input type="number" value={instCount} onChange={e => setInstCount(e.target.value)} className="w-12 text-center px-1" />
-                                    </div>
-                                </div>
-                            </>
-                        ) : (
-                            <div><Label className="text-[10px] font-bold text-slate-500">VALOR</Label><Input value={amount} onChange={handleMoneyChange(setAmount)} className="font-bold text-slate-700" /></div>
-                        )}
+                        <div className="col-span-1">
+                            <Label className="text-xs font-bold text-slate-500 mb-1 block">DESCRIÇÃO</Label>
+                            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Nome" />
+                        </div>
+                        <div className="col-span-1">
+                            <Label className="text-[10px] font-bold text-slate-500 mb-1 block">TOTAL</Label>
+                            <Input value={amount} onChange={handleMoneyChange(setAmount)} className="font-bold text-slate-700" disabled={isInstallment} />
+                        </div>
+                    </div>
 
+                    {/* Row 2: Date | Category */}
+                    <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <Label className="text-[10px] font-bold text-slate-500">CATEGORIA</Label>
+                            <Label className="text-[10px] font-bold text-slate-500 mb-1 block">{isFixed ? 'DATA DE PAGAMENTO' : 'DATA DE COMPRA'}</Label>
+                            <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
+                        </div>
+                        <div>
+                            <Label className="text-[10px] font-bold text-slate-500 mb-1 block">CATEGORIA</Label>
                             <select className="w-full h-10 border rounded bg-white px-2 text-sm" value={category} onChange={e => setCategory(e.target.value)}>
                                 {state.categories.filter(c => c.type === (type === 'debt' ? 'expense' : 'income')).map(c => (
                                     <option key={c.id} value={c.name}>{c.name}</option>
@@ -220,27 +177,59 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <Label className="text-[10px] font-bold text-slate-500">{isFixed ? 'DATA DE PAGAMENTO' : 'DATA DE COMPRA'}</Label>
-                            <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
-                        </div>
+                    {/* Row 3: Toggles */}
+                    <div className="flex flex-wrap items-center gap-4 bg-slate-50 p-2 rounded border">
+                        <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                            <input type="checkbox" checked={isFixed} onChange={e => { setIsFixed(e.target.checked); if (e.target.checked) setIsInstallment(false); }} className="w-4 h-4 accent-blue-600" /> Fixa?
+                        </label>
                         {type === 'debt' && (
+                            <>
+                                <div className="w-px h-4 bg-slate-300"></div>
+                                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                                    <input type="checkbox" checked={isInstallment} onChange={e => { setIsInstallment(e.target.checked); if (e.target.checked) setIsFixed(false); }} className="w-4 h-4 accent-blue-600" /> Parcelada?
+                                </label>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Row 4: Method | Cycle */}
+                    {type === 'debt' && (
+                        <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <Label className="text-[10px] font-bold text-slate-500">MÉTODO</Label>
+                                <Label className="text-[10px] font-bold text-slate-500 mb-1 block">MÉTODO</Label>
                                 <select className="w-full h-10 border rounded bg-white px-2 text-sm" value={method} onChange={e => setMethod(e.target.value)}>
                                     <option value="Cartão">Cartão</option>
                                     <option value="Pix">Pix</option>
                                     <option value="Boleto">Boleto</option>
                                 </select>
                             </div>
-                        )}
-                    </div>
+                            {state.settings.hasAdvance && (
+                                <div>
+                                    <Label className="text-[10px] font-bold text-slate-500 mb-1 block">CICLO</Label>
+                                    <select className="w-full h-10 border rounded bg-white px-2 text-sm" value={cycle} onChange={e => setCycle(e.target.value as any)}>
+                                        <option value="day_05">Dia {state.settings.salaryDay}</option>
+                                        <option value="day_20">Dia {state.settings.advanceDay}</option>
+                                    </select>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
+                    {/* Conditional Installment Row */}
                     {isInstallment && (
-                        <div className="bg-blue-50 p-2 rounded text-xs text-blue-700 flex justify-between items-center">
-                            <span>Total Calculado:</span>
-                            <span className="font-bold">{amount}</span>
+                        <div className="grid grid-cols-3 gap-2 bg-blue-50 p-2 rounded">
+                            <div>
+                                <Label className="text-[10px] font-bold text-slate-500 mb-1 block">QTD PARC.</Label>
+                                <Input type="number" value={instCount} onChange={e => setInstCount(e.target.value)} className="h-8 text-xs bg-white" />
+                            </div>
+                            <div>
+                                <Label className="text-[10px] font-bold text-slate-500 mb-1 block">VALOR PARC.</Label>
+                                <Input value={instVal} onChange={handleMoneyChange(setInstVal)} className="h-8 text-xs bg-white font-bold" />
+                            </div>
+                            <div>
+                                <Label className="text-[10px] font-bold text-slate-500 mb-1 block">ATUAL</Label>
+                                <Input type="number" value={currentInst} onChange={e => setCurrentInst(e.target.value)} className="h-8 text-xs bg-white" />
+                            </div>
                         </div>
                     )}
 
