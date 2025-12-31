@@ -110,9 +110,12 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
         const dateRegex = /(\d{2}[\/\-]\d{2}(?:[\/\-]\d{2,4})?)/;
         
         lines.forEach(line => {
+            let cleanLine = line.trim();
+            if(cleanLine.length < 3) return;
+
             let date: string | null = null;
             let amount: number = 0;
-            let description = line;
+            let description = cleanLine;
 
             const dateMatch = description.match(dateRegex);
             if (dateMatch) {
@@ -127,22 +130,40 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
                 }
             }
 
-            const valueMatches = [...description.matchAll(/(?:R$\s*)?\d+(?:[.,]\d+)?/g)];
+            const valueMatches = [...description.matchAll(/(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)/g)];
             if (valueMatches.length > 0) {
-                const lastMatch = valueMatches[valueMatches.length - 1];
-                const valueString = lastMatch[0];
-                try {
-                    const cleaned = valueString.replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
-                    const parsedValue = parseFloat(cleaned);
-                    if (!isNaN(parsedValue)) {
-                        amount = parsedValue;
-                        const index = description.lastIndexOf(valueString);
-                        if (index > -1) description = description.substring(0, index) + description.substring(index + valueString.length);
-                        description = description.replace(/reais/i, '').trim();
-                    }
-                } catch(e) { addLog(`Não foi possível extrair valor de: ${valueString}`); } 
+                const currencyMatch = valueMatches.find(m => m[0].includes('R$'));
+                const bestMatch = currencyMatch || valueMatches[valueMatches.length - 1];
+
+                if (bestMatch) {
+                    const valueString = bestMatch[0];
+                    try {
+                        let cleaned = valueString.replace(/R\$\s?/i, '').trim();
+
+                        if (cleaned.includes(',') && !cleaned.includes('.')) {
+                             cleaned = cleaned.replace(',', '.');
+                        } else if (cleaned.includes('.') && cleaned.includes(',')) {
+                             cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+                        } else if (cleaned.includes('.')) {
+                             cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+                        }
+
+                        const parsedValue = parseFloat(cleaned);
+                        if (!isNaN(parsedValue)) {
+                            amount = parsedValue;
+                            const idx = bestMatch.index!;
+                            description = description.substring(0, idx) + description.substring(idx + valueString.length);
+                        }
+                    } catch(e) { addLog(`Não foi possível extrair valor de: ${valueString}`); }
+                }
             }
-            description = description.replace(/reais/i, '').trim();
+
+            description = description.replace(/\s+/g, ' ').trim();
+            description = description.replace(/\breais\b/gi, '').trim();
+            description = description.replace(/R\$\s*$/i, '').trim();
+
+            if (description.length === 0 && date) description = "Sem descrição";
+
             results.push(importersCreateTransaction(
                 date || '',
                 description,
@@ -177,6 +198,12 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
           else if (bank === 'Mercado Pago') found = parseMercadoPago(raw);
           else if (bank === 'Nubank') found = parseNubank(raw);
           if (found.length === 0) found = parseGenericScanner(raw);
+
+          if (found.length === 0 && bank === 'Genérico') {
+               addLog("Tentando fallback para Lista Simples...");
+               const listItems = parseSimpleList(raw);
+               if(listItems.length > 0) found = listItems;
+          }
       } catch (e: any) { toast.error("Erro ao processar extrato."); } 
 
       const completeItems = found.filter(t => t.date);
@@ -279,6 +306,13 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
         setLoading(true);
         setLogs([]);
         const extension = file.name.split('.').pop()?.toLowerCase();
+
+        if (['docx', 'txt', 'csv'].includes(extension || '')) {
+            setParserMode('list');
+        } else {
+            setParserMode('bank');
+        }
+
         if (extension === 'pdf') await loadPdf(file);
         else if (extension === 'xlsx') loadXlsx(file);
         else if (extension === 'docx') loadDocx(file);
