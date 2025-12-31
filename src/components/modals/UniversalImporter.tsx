@@ -16,8 +16,8 @@ const SimpleParser = (text: string): ImportedTransaction[] => {
     const results: ImportedTransaction[] = [];
     const lines = text.split('\n');
 
-    const dateRegex = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/;
-    const amountRegex = /((?:R\$\s?)?(-)?\s?\d{1,3}(?:\.\d{3})*,\d{2})/;
+    const dateRegex = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/; 
+    const amountRegex = /((?:R\$\s?)?(-)?\s?\d{1,3}(?:\.\d{3})*,\d{2})/; 
 
     for (const line of lines) {
         if (line.trim().length < 5) continue;
@@ -46,8 +46,8 @@ const SimpleParser = (text: string): ImportedTransaction[] => {
             description,
             sender: description,
             amount: Math.abs(amount),
-            type: amount < 0 ? 'expense' : 'income',
             category: 'Outros',
+            cycle: 'day_05',
         });
     }
     return results;
@@ -154,7 +154,6 @@ export const UniversalImporter = ({ onClose }: UniversalImporterProps) => {
                                             <th className="p-2"></th>
                                             <th className="p-2">Data</th>
                                             <th className="p-2">Descrição</th>
-                                            <th className="p-2">Tipo</th>
                                             <th className="p-2">Categoria</th>
                                             <th className="p-2 text-right">Valor</th>
                                         </tr>
@@ -165,12 +164,6 @@ export const UniversalImporter = ({ onClose }: UniversalImporterProps) => {
                                                 <td className="p-1"><Trash2 onClick={() => removeItem(t.id)} className="h-4 w-4 text-slate-400 hover:text-red-500 cursor-pointer"/></td>
                                                 <td className="p-1"><Input className="h-7" value={t.date} onChange={e => updateItem(t.id, 'date', e.target.value)} /></td>
                                                 <td className="p-1"><Input className="h-7" value={t.sender} onChange={e => updateItem(t.id, 'sender', e.target.value)} /></td>
-                                                <td className="p-1">
-                                                    <select className="h-7 border rounded px-1" value={t.type} onChange={e => updateItem(t.id, 'type', e.target.value)}>
-                                                        <option value="expense">Despesa</option>
-                                                        <option value="income">Renda</option>
-                                                    </select>
-                                                </td>
                                                 <td className="p-1">
                                                      <select className="h-7 w-full border rounded px-1" value={t.category} onChange={e => updateItem(t.id, 'category', e.target.value)}>
                                                         {state.categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}

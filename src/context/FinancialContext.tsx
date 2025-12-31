@@ -2,14 +2,17 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { FinancialState, Transaction, Debt, ImportedTransaction, UserSettings } from '@/types';
+import { FinancialState, Transaction, Debt, ImportedTransaction, UserSettings, FinancialCycle } from '@/types';
 import { MONTHS_FULL } from '@/lib/constants';
 
+// Helper to get today's month string "YYYY-MM"
+const getCurrentMonthStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
 const initialState: FinancialState = {
-  cycles: [
-    { id: 'c1', type: 'day_05', transactions: [], debts: [] },
-    { id: 'c2', type: 'day_20', transactions: [], debts: [] },
-  ],
+  cycles: [],
   categories: [
     { id: 'cat1', name: 'Salário', type: 'income', color: '#10b981' },
     { id: 'cat2', name: 'Casa', type: 'expense', color: '#3b82f6' },
@@ -21,7 +24,8 @@ const initialState: FinancialState = {
     { id: 'cat8', name: 'Outros', type: 'expense', color: '#64748b' },
   ],
   settings: { salaryDay: 5, hasAdvance: true, advanceDay: 20, theme: 'system' },
-  categoryMappings: {} // Inicializa vazio
+  categoryMappings: {},
+  viewDate: new Date().toISOString() // Using ISO string to support my changes, while respecting structure
 };
 
 interface FinancialContextType {
@@ -37,11 +41,16 @@ interface FinancialContextType {
   addProjectedDebt: (d: Omit<Debt, 'id'>) => void;
   addBatchedTransactions: (t: ImportedTransaction[]) => void;
   updateDebt: (id: string, d: Partial<Debt>) => void;
+  updateMultipleDebts: (debts: Partial<Debt>[]) => void;
   deleteDebt: (id: string) => void;
   payPartialDebt: (debtId: string, amountToPay: number) => void;
   switchCycle: (id: string) => void;
   learnCategory: (sender: string, category: string, amount: number, isFixed: boolean) => void; 
   clearDatabase: (range: 'all' | '2months' | '6months') => void;
+  getCyclesForMonth: (monthStr: string) => FinancialCycle[];
+  toggleDebtStatus: (id: string) => void;
+  toggleTransactionStatus: (id: string) => void;
+  setViewDate: (date: string) => void;
 }
 
 const FinancialContext = createContext<FinancialContextType | undefined>(undefined);
@@ -51,14 +60,33 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('finance_db_v7'); // Versão 7 (Mappings)
+    const saved = localStorage.getItem('finance_db_v7');
     if (saved) { 
         try { 
             const parsed = JSON.parse(saved);
-            // Garante que categoryMappings existe mesmo se carregar backup antigo
             if (!parsed.categoryMappings) parsed.categoryMappings = {};
+
+            // Migration: Add viewDate if missing
+            if (!parsed.viewDate) parsed.viewDate = new Date().toISOString();
+
+            // Migration check: Ensure cycles have month property
+            if (parsed.cycles && parsed.cycles.length > 0 && !parsed.cycles[0].month) {
+                const currentMonth = getCurrentMonthStr();
+                parsed.cycles = parsed.cycles.map((c: any) => ({ ...c, month: currentMonth }));
+            }
+
             setState(parsed); 
         } catch (e) { console.error(e); } 
+    } else {
+        const currentMonth = getCurrentMonthStr();
+        setState(prev => ({
+            ...prev,
+            viewDate: new Date().toISOString(),
+            cycles: [
+                { id: `${currentMonth}_day_05`, month: currentMonth, type: 'day_05', transactions: [], debts: [] },
+                { id: `${currentMonth}_day_20`, month: currentMonth, type: 'day_20', transactions: [], debts: [] }
+            ]
+        }));
     }
     setIsLoaded(true);
   }, []);
@@ -69,6 +97,8 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
 
   const updateSettings = (s: UserSettings) => setState(prev => ({ ...prev, settings: s }));
   
+  const setViewDate = (date: string) => setState(prev => ({ ...prev, viewDate: date }));
+
   const addCategory = (name: string, type: 'income'|'expense', color: string) => {
       setState(prev => ({ ...prev, categories: [...prev.categories, { id: uuidv4(), name, type, color }] }));
   };
@@ -79,10 +109,8 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
 
   const removeCategory = (id: string) => setState(prev => ({ ...prev, categories: prev.categories.filter(c => c.id !== id) }));
 
-  // --- Função de Aprendizado ---
   const learnCategory = (sender: string, category: string, amount: number, isFixed: boolean) => {
       if (!sender || !category) return;
-      // Para despesas fixas, aprendemos apenas o remetente. Para variáveis, a combinação.
       const key = isFixed 
           ? sender.toLowerCase().trim()
           : `${sender.toLowerCase().trim()}-${amount.toFixed(2)}`;
@@ -93,10 +121,30 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
       }));
   };
 
+  const ensureCyclesForMonth = (cycles: FinancialCycle[], monthStr: string): FinancialCycle[] => {
+      const exists = cycles.some(c => c.month === monthStr);
+      if (exists) return cycles;
+
+      return [
+          ...cycles,
+          { id: `${monthStr}_day_05`, month: monthStr, type: 'day_05', transactions: [], debts: [] },
+          { id: `${monthStr}_day_20`, month: monthStr, type: 'day_20', transactions: [], debts: [] }
+      ];
+  };
+
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
-    setState(prev => ({
-      ...prev, cycles: prev.cycles.map(c => c.type === t.cycle ? { ...c, transactions: [...c.transactions, { ...t, id: uuidv4() }] } : c)
-    }));
+    const dateObj = new Date(t.date || new Date());
+    const monthStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
+
+    setState(prev => {
+        const cyclesWithMonth = ensureCyclesForMonth(prev.cycles, monthStr);
+        return {
+            ...prev,
+            cycles: cyclesWithMonth.map(c => (c.month === monthStr && c.type === t.cycle)
+                ? { ...c, transactions: [...c.transactions, { ...t, id: uuidv4(), isPaid: false, needsReview: false }] }
+                : c)
+        };
+    });
   };
 
   const updateTransaction = (id: string, updated: Partial<Transaction>) => {
@@ -108,14 +156,53 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addDebt = (d: Omit<Debt, 'id'>) => {
-    setState(prev => ({
-      ...prev, cycles: prev.cycles.map(c => c.type === d.cycle ? { ...c, debts: [...c.debts, { ...d, id: uuidv4() }] } : c)
-    }));
+    // If it's an installment debt, we need to create multiple debts for future months
+    const dateStr = d.purchaseDate || d.dueDate || new Date().toISOString();
+    const dateObj = new Date(dateStr);
+
+    setState(prev => {
+        let newCycles = [...prev.cycles];
+        const count = (d.totalInstallments > 1) ? d.totalInstallments : 1;
+
+        // Loop to create installments
+        for (let i = 0; i < count; i++) {
+            const installmentDate = new Date(dateObj);
+            installmentDate.setMonth(installmentDate.getMonth() + i);
+            const monthStr = `${installmentDate.getFullYear()}-${String(installmentDate.getMonth() + 1).padStart(2, '0')}`;
+
+            // Due date adjustment? Assuming same day of month.
+            const dueDateObj = new Date(dateObj);
+            dueDateObj.setMonth(dueDateObj.getMonth() + i);
+            const dueDateStr = dueDateObj.toISOString().split('T')[0];
+
+            newCycles = ensureCyclesForMonth(newCycles, monthStr);
+
+            const currentInstallment = d.currentInstallment + i;
+            // Should we add only if currentInstallment <= totalInstallments? Yes.
+            if (currentInstallment > d.totalInstallments) break;
+
+            // Create debt for this month
+            // We need to find the cycle within newCycles for this month
+            const cycleIndex = newCycles.findIndex(c => c.month === monthStr && c.type === d.cycle);
+            if (cycleIndex !== -1) {
+                newCycles[cycleIndex].debts.push({
+                    ...d,
+                    id: uuidv4(),
+                    dueDate: dueDateStr,
+                    currentInstallment: currentInstallment,
+                    isPaid: false,
+                    needsReview: i === 0 ? (d.needsReview ?? false) : false // Only flag first one if needed? Or none?
+                });
+            }
+        }
+
+        return { ...prev, cycles: newCycles };
+    });
   };
   
   const addProjectedDebt = (d: Omit<Debt, 'id'>) => {
       const { salaryDay, advanceDay, hasAdvance } = state.settings;
-      const debtDate = new Date(d.purchaseDate!);
+      const debtDate = new Date(d.purchaseDate || d.dueDate || new Date());
       const debtDay = debtDate.getDate();
 
       let targetCycle: 'day_05' | 'day_20' = 'day_05';
@@ -130,26 +217,72 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateDebt = (id: string, updated: Partial<Debt>) => {
-      setState(prev => {
-          const currentCycle = prev.cycles.find(c => c.debts.some(d => d.id === id))?.type;
-          const newCycle = updated.cycle;
+    setState(prev => {
+        let debtToMove: Debt | null = null;
+        let sourceCycleId: string | null = null;
 
-          if (currentCycle && newCycle && currentCycle !== newCycle) {
-              let itemToMove: Debt | undefined;
-              const cyclesRemoved = prev.cycles.map(c => {
-                  if (c.type === currentCycle) {
-                      const found = c.debts.find(d => d.id === id);
-                      if (found) itemToMove = { ...found, ...updated };
-                      return { ...c, debts: c.debts.filter(d => d.id !== id) };
-                  }
-                  return c;
-              });
-              if (itemToMove) {
-                  return { ...prev, cycles: cyclesRemoved.map(c => c.type === newCycle ? { ...c, debts: [...c.debts, itemToMove!] } : c) };
-              }
-          }
-          return { ...prev, cycles: prev.cycles.map(c => ({ ...c, debts: c.debts.map(d => d.id === id ? { ...d, ...updated } : d) })) };
-      });
+        // Find the debt and its original cycle
+        for (const cycle of prev.cycles) {
+            const found = cycle.debts.find(d => d.id === id);
+            if (found) {
+                debtToMove = { ...found, ...updated };
+                sourceCycleId = cycle.id;
+                break;
+            }
+        }
+
+        if (!debtToMove || !sourceCycleId) {
+            // Fallback to simple update if not found (should not happen)
+            return { ...prev, cycles: prev.cycles.map(c => ({ ...c, debts: c.debts.map(d => d.id === id ? { ...d, ...updated } : d) })) };
+        }
+
+        const newDueDate = updated.dueDate ? new Date(updated.dueDate) : new Date(debtToMove.dueDate);
+        const newMonthStr = `${newDueDate.getFullYear()}-${String(newDueDate.getMonth() + 1).padStart(2, '0')}`;
+        
+        const sourceCycle = prev.cycles.find(c => c.id === sourceCycleId)!;
+        const targetCycleId = `${newMonthStr}_${sourceCycle.type}`;
+
+        // If month hasn't changed, just update in place
+        if (sourceCycle.month === newMonthStr) {
+            return {
+                ...prev,
+                cycles: prev.cycles.map(c => c.id === sourceCycleId
+                    ? { ...c, debts: c.debts.map(d => d.id === id ? debtToMove! : d) }
+                    : c)
+            };
+        }
+
+        // If month has changed, move the debt
+        const cyclesWithTarget = ensureCyclesForMonth(prev.cycles, newMonthStr);
+        let finalCycles = cyclesWithTarget.map(c => {
+            // Remove from old cycle
+            if (c.id === sourceCycleId) {
+                return { ...c, debts: c.debts.filter(d => d.id !== id) };
+            }
+            // Add to new cycle
+            if (c.id === targetCycleId) {
+                return { ...c, debts: [...c.debts, debtToMove!] };
+            }
+            return c;
+        });
+
+        return { ...prev, cycles: finalCycles };
+    });
+  };
+
+  const updateMultipleDebts = (debts: Partial<Debt>[]) => {
+    setState(prev => {
+        const updatedCycles = prev.cycles.map(c => {
+            return {
+                ...c,
+                debts: c.debts.map(d => {
+                    const updatedDebt = debts.find(ud => ud.id === d.id);
+                    return updatedDebt ? { ...d, ...updatedDebt } : d;
+                })
+            };
+        });
+        return { ...prev, cycles: updatedCycles };
+    });
   };
 
   const deleteDebt = (id: string) => {
@@ -160,34 +293,37 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
     setState(prev => {
       let debtToSplit: Debt | null = null;
       let originalCycleType: 'day_05' | 'day_20' | null = null;
+      let originalCycleMonth: string | null = null;
 
       for (const cycle of prev.cycles) {
         const found = cycle.debts.find(d => d.id === debtId);
         if (found) {
           debtToSplit = found;
           originalCycleType = cycle.type;
+          originalCycleMonth = cycle.month;
           break;
         }
       }
 
-      if (!debtToSplit || !originalCycleType) return prev;
+      if (!debtToSplit || !originalCycleType || !originalCycleMonth) return prev;
 
       const remainingAmount = debtToSplit.installmentAmount - amountToPay;
-      if (remainingAmount <= 0) { // Se pagou tudo ou mais, apenas deleta a original
+      if (remainingAmount <= 0) {
         return { ...prev, cycles: prev.cycles.map(c => ({ ...c, debts: c.debts.filter(d => d.id !== debtId) }))};
       }
       
       const newCycles = prev.cycles.map(c => {
-        if (c.type === originalCycleType) {
-            // Remove a dívida original e adiciona as duas novas (paga e restante)
-            const otherDebts = c.debts.filter(d => d.id !== debtId);
+        if (c.type === originalCycleType && c.month === originalCycleMonth) {
+            const otherDebts = c.debts.filter(d => d.id !== debtToSplit!.id);
             const paidPart: Debt = {
                 ...debtToSplit!,
                 id: uuidv4(),
                 name: `${debtToSplit!.name} (Parcial Paga)`,
                 installmentAmount: amountToPay,
                 paidAmount: amountToPay,
-                totalAmount: debtToSplit!.installmentAmount, // Mantém o total original para referência
+                totalAmount: debtToSplit!.installmentAmount,
+                isPaid: true,
+                paymentDate: new Date().toISOString()
             };
             const remainingPart: Debt = {
                 ...debtToSplit!,
@@ -195,7 +331,8 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
                 name: `Restante - ${debtToSplit!.name}`,
                 installmentAmount: remainingAmount,
                 paidAmount: 0,
-                totalAmount: debtToSplit!.installmentAmount, // Mantém o total original
+                totalAmount: debtToSplit!.installmentAmount,
+                isPaid: false
             };
             return { ...c, debts: [...otherDebts, paidPart, remainingPart] };
         }
@@ -209,66 +346,93 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   const switchCycle = (id: string) => {
       setState(prev => {
           let item: Debt | undefined;
-          let currentCycleType: string = '';
-          prev.cycles.forEach(c => { const f = c.debts.find(d => d.id === id); if (f) { item = f; currentCycleType = c.type; } });
-          if (!item) return prev;
+          let currentCycle: FinancialCycle | undefined;
 
-          if (currentCycleType === 'day_20') {
-              const currentMonthIdx = MONTHS_FULL.indexOf(item.billingMonth || '');
-              const nextMonth = MONTHS_FULL[(currentMonthIdx + 1) % 12];
-              return { ...prev, cycles: prev.cycles.map(c => {
-                  if (c.type === 'day_20') return { ...c, debts: c.debts.filter(d => d.id !== id) };
-                  if (c.type === 'day_05') return { ...c, debts: [...c.debts, { ...item!, cycle: 'day_05', billingMonth: nextMonth }] };
-                  return c;
-              })};
-          } else {
-              return { ...prev, cycles: prev.cycles.map(c => {
-                  if (c.type === 'day_05') return { ...c, debts: c.debts.filter(d => d.id !== id) };
-                  if (c.type === 'day_20') return { ...c, debts: [...c.debts, { ...item!, cycle: 'day_20' }] };
-                  return c;
-              })};
+          for (const c of prev.cycles) {
+              const found = c.debts.find(d => d.id === id);
+              if (found) {
+                  item = found;
+                  currentCycle = c;
+                  break;
+              }
           }
+
+          if (!item || !currentCycle) return prev;
+
+          let targetMonth = currentCycle.month;
+          let targetType: 'day_05' | 'day_20';
+          let updatedItem = { ...item };
+
+          if (currentCycle.type === 'day_20') {
+              const [y, m] = currentCycle.month.split('-').map(Number);
+              const nextDate = new Date(y, m, 1);
+              targetMonth = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
+              targetType = 'day_05';
+              updatedItem.cycle = 'day_05';
+          } else {
+              targetType = 'day_20';
+              updatedItem.cycle = 'day_20';
+          }
+
+          const cyclesWithTarget = ensureCyclesForMonth(prev.cycles, targetMonth);
+
+          return {
+              ...prev,
+              cycles: cyclesWithTarget.map(c => {
+                  if (c.id === currentCycle!.id) {
+                      return { ...c, debts: c.debts.filter(d => d.id !== id) };
+                  }
+                  if (c.month === targetMonth && c.type === targetType) {
+                      return { ...c, debts: [...c.debts, updatedItem] };
+                  }
+                  return c;
+              })
+          };
       });
   };
 
   const addBatchedTransactions = (transactions: ImportedTransaction[]) => {
     setState(prev => {
-        const newCycles = [...prev.cycles];
-        const currentMonthName = MONTHS_FULL[new Date().getMonth()];
+        let newCycles = [...prev.cycles];
         const { salaryDay, advanceDay, hasAdvance } = prev.settings;
+        const currentMonthName = MONTHS_FULL[new Date().getMonth()];
 
         transactions.forEach(t => {
-            const day = parseInt(t.date.split('/')[0]) || 1;
+            const dateObj = new Date(t.date || new Date());
+            const monthStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
+
+            newCycles = ensureCyclesForMonth(newCycles, monthStr);
+
+            const day = dateObj.getDate();
             let targetType: 'day_05' | 'day_20' = 'day_05';
             if (hasAdvance) {
                 const distSalary = Math.abs(day - salaryDay);
                 const distAdvance = Math.abs(day - advanceDay);
                 if (distAdvance < distSalary) targetType = 'day_20';
             }
-            const idx = newCycles.findIndex(c => c.type === targetType);
             
-            // Auto-aprendizado na confirmação também (garantia)
+            const idx = newCycles.findIndex(c => c.month === monthStr && c.type === targetType);
+            const amount = typeof t.amount === 'string' ? parseFloat(t.amount.replace(',', '.')) : t.amount;
+
             if(t.sender && t.category) {
                 const key = t.sender.toLowerCase().trim();
                 prev.categoryMappings[key] = t.category;
             }
 
-            if (t.type === 'income') {
-                newCycles[idx].transactions.push({
-                    id: uuidv4(), description: t.sender || t.description, amount: Math.abs(t.amount),
-                    type: 'income', category: t.category || 'Salário', date: t.date, isFixed: false, cycle: targetType
-                });
-            } else {
+            if (idx !== -1) {
+                // All imported transactions are 'expense' now
                 const isInst = !!t.installments;
-                const finalName = t.sender ? t.sender : t.description; // Prefere Sender limpo
+                const finalName = t.sender ? t.sender : t.description;
+
                 newCycles[idx].debts.push({
-                    id: uuidv4(), name: finalName, 
-                    totalAmount: Math.abs(t.amount) * (isInst ? t.installments!.total : 1),
-                    installmentAmount: Math.abs(t.amount), dueDate: t.date, purchaseDate: t.date,
+                    id: uuidv4(), name: finalName,
+                    totalAmount: Math.abs(amount) * (isInst ? t.installments!.total : 1),
+                    installmentAmount: Math.abs(amount), dueDate: t.date, purchaseDate: t.date,
                     currentInstallment: isInst ? t.installments!.current : 1,
                     totalInstallments: isInst ? t.installments!.total : 1,
-                    isFixed: false, billingMonth: currentMonthName, cycle: targetType, 
-                    category: t.category || 'Outros', paymentMethod: t.description.includes('Pix') ? 'Pix' : 'Cartão'
+                    isFixed: false, billingMonth: currentMonthName, cycle: targetType,
+                    category: t.category || 'Outros', paymentMethod: t.description.includes('Pix') ? 'Pix' : 'Cartão',
+                    needsReview: true, isPaid: false
                 });
             }
         });
@@ -280,8 +444,39 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
       if (range === 'all') setState({ ...initialState, settings: state.settings, categories: state.categories, categoryMappings: state.categoryMappings });
   };
 
+  const getCyclesForMonth = (monthStr: string) => {
+      const found = state.cycles.filter(c => c.month === monthStr);
+      if (found.length === 0) {
+          return [
+             { id: `${monthStr}_day_05`, month: monthStr, type: 'day_05', transactions: [], debts: [] } as FinancialCycle,
+             { id: `${monthStr}_day_20`, month: monthStr, type: 'day_20', transactions: [], debts: [] } as FinancialCycle
+          ];
+      }
+      return found.sort((a, b) => a.type === 'day_05' ? -1 : 1);
+  };
+
+  const toggleDebtStatus = (id: string) => {
+      setState(prev => ({
+          ...prev,
+          cycles: prev.cycles.map(c => ({
+              ...c,
+              debts: c.debts.map(d => d.id === id ? { ...d, isPaid: !d.isPaid, paymentDate: !d.isPaid ? new Date().toISOString() : undefined } : d)
+          }))
+      }));
+  };
+
+  const toggleTransactionStatus = (id: string) => {
+    setState(prev => ({
+        ...prev,
+        cycles: prev.cycles.map(c => ({
+            ...c,
+            transactions: c.transactions.map(t => t.id === id ? { ...t, isPaid: !t.isPaid } : t)
+        }))
+    }));
+  };
+
   return (
-    <FinancialContext.Provider value={{ state, updateSettings, addCategory, updateCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, addProjectedDebt, addBatchedTransactions, updateDebt, deleteDebt, payPartialDebt, switchCycle, learnCategory, clearDatabase }}>
+    <FinancialContext.Provider value={{ state, updateSettings, addCategory, updateCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, addProjectedDebt, addBatchedTransactions, updateDebt, updateMultipleDebts, deleteDebt, payPartialDebt, switchCycle, learnCategory, clearDatabase, getCyclesForMonth, toggleDebtStatus, toggleTransactionStatus, setViewDate }}>
       {children}
     </FinancialContext.Provider>
   );

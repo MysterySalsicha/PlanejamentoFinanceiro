@@ -9,6 +9,8 @@ export interface Transaction {
     date: string;
     isFixed?: boolean;
     cycle: 'day_05' | 'day_20';
+    isPaid?: boolean;
+    needsReview?: boolean;
 }
   
 export interface Debt {
@@ -19,6 +21,8 @@ export interface Debt {
     paidAmount?: number;
     dueDate: string;
     purchaseDate?: string;
+    paymentDate?: string; // ISO String
+    originalId?: string; // Para rastreio caso venha de uma importação
     currentInstallment: number;
     totalInstallments: number;
     isFixed?: boolean;
@@ -26,6 +30,8 @@ export interface Debt {
     category?: string;
     cycle: 'day_05' | 'day_20';
     paymentMethod?: string;
+    isPaid?: boolean;
+    needsReview?: boolean;
 }
   
 export interface Category {
@@ -37,6 +43,7 @@ export interface Category {
   
 export interface FinancialCycle {
     id: string;
+    month: string; // Format: YYYY-MM
     type: 'day_05' | 'day_20';
     transactions: Transaction[];
     debts: Debt[];
@@ -53,17 +60,21 @@ export interface FinancialState {
     cycles: FinancialCycle[];
     categories: Category[];
     settings: UserSettings;
-    categoryMappings: Record<string, string>; // NOVO: Memória de Categorias
+    categoryMappings: Record<string, string>;
+    viewDate?: string; // Format: ISO String or YYYY-MM depending on usage, sticking to my impl (ISO) for now but respecting user adding it
 }
 
 export interface ImportedTransaction {
     id: string;
     description: string;
     sender?: string;
-    amount: number;
+    amount: string | number;
     date: string;
-    type: 'income' | 'expense';
     category: string;
+    cycle: 'day_05' | 'day_20';
     installments?: { current: number, total: number };
     isDuplicate?: boolean;
+    needsReview?: boolean;
+    isPaid?: boolean;
+    linkedDebtId?: string;
 }
