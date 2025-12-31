@@ -408,7 +408,50 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
             }
 
             if (idx !== -1) {
-                if (t.type === 'income') {
+                // If this transaction is linked to an existing debt, mark that debt as paid instead of creating a new one
+                if (t.linkedDebtId) {
+                    // Find the debt across all cycles (since it might be in a different cycle than the transaction date suggests)
+                    // Actually, we should look for the specific debt ID provided.
+                    let debtFound = false;
+
+                    // Search in the target cycle first, then others if needed (though ID should be unique enough if we search globally)
+                    // Optimization: We can search all cycles in newCycles
+                    for (const cycle of newCycles) {
+                        const debtIndex = cycle.debts.findIndex(d => d.id === t.linkedDebtId);
+                        if (debtIndex !== -1) {
+                            cycle.debts[debtIndex] = {
+                                ...cycle.debts[debtIndex],
+                                isPaid: true,
+                                paymentDate: t.date, // Set the payment date to the transaction date
+                                paidAmount: cycle.debts[debtIndex].installmentAmount // Assume full payment of installment
+                            };
+                            debtFound = true;
+                            break;
+                        }
+                    }
+
+                    // If not found (weird), maybe fallback to creating new?
+                    // But if linkedDebtId is provided, it *should* exist.
+                    // If not found, we ignore or log? Let's treat as new if not found to be safe, or just skip.
+                    if (!debtFound) {
+                        // fallback to creating new if link is invalid
+                        // (Same logic as below)
+                         const isInst = !!t.installments;
+                         const finalName = t.sender ? t.sender : t.description;
+
+                         newCycles[idx].debts.push({
+                             id: uuidv4(), name: finalName,
+                             totalAmount: Math.abs(amount) * (isInst ? t.installments!.total : 1),
+                             installmentAmount: Math.abs(amount), dueDate: t.date, purchaseDate: t.date,
+                             currentInstallment: isInst ? t.installments!.current : 1,
+                             totalInstallments: isInst ? t.installments!.total : 1,
+                             isFixed: false, billingMonth: currentMonthName, cycle: targetType,
+                             category: t.category || 'Outros', paymentMethod: t.description.includes('Pix') ? 'Pix' : 'Cartão',
+                             needsReview: true, isPaid: false
+                         });
+                    }
+
+                } else if (t.type === 'income') {
                     newCycles[idx].transactions.push({
                         id: uuidv4(), description: t.sender || t.description, amount: Math.abs(amount),
                         type: 'income', category: t.category || 'Salário', date: t.date, isFixed: false, cycle: targetType,
