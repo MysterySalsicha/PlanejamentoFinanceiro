@@ -20,7 +20,7 @@ export const detectBank = (text: string): BankType => {
     return 'Genérico';
 };
 
-export const createTransaction = (date: string, description: string, sender: string, amount: number, type: 'income' | 'expense', categoryMappings?: Record<string, string>): ImportedTransaction => {
+const createTransaction = (date: string, description: string, sender: string, amount: number, type: 'income' | 'expense', categoryMappings?: Record<string, string>): ImportedTransaction => {
     let category = '';
     const cleanSender = sender.replace(/[\d.\-\/]{9,}/g, '')
                               .replace(/(\d{2}\/\d{2})/g, '')
