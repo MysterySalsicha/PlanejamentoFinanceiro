@@ -279,6 +279,78 @@ export const parseMercadoPago = (text: string, categoryMappings?: Record<string,
     return results;
 };
 
+export const parseSimpleList = (text: string, categoryMappings?: Record<string, string>): ImportedTransaction[] => {
+    const results: ImportedTransaction[] = [];
+    const lines = text.split('\n').filter(l => l.trim().length > 0);
+    const dateRegex = /(\d{2}[\/\-]\d{2}(?:[\/\-]\d{2,4})?)/;
+
+    lines.forEach(line => {
+        let cleanLine = line.trim();
+        if(cleanLine.length < 3) return;
+
+        let date: string | null = null;
+        let amount: number = 0;
+        let description = cleanLine;
+
+        const dateMatch = description.match(dateRegex);
+        if (dateMatch) {
+            let foundDate = dateMatch[0].replace(/-/g, '/');
+            const parts = foundDate.split('/');
+            if (parts.length === 2) foundDate = `${parts[0]}/${parts[1]}/${new Date().getFullYear()}`;
+            else if (parts.length === 3 && parts[2].length === 2) foundDate = `${parts[0]}/${parts[1]}/20${parts[2]}`;
+            const testDate = new Date(foundDate.split('/').reverse().join('-'));
+            if (!isNaN(testDate.getTime())) {
+                date = foundDate;
+                description = description.replace(dateMatch[0], '').trim();
+            }
+        }
+
+        const valueMatches = [...description.matchAll(/(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)/g)];
+        if (valueMatches.length > 0) {
+            const currencyMatch = valueMatches.find(m => m[0].includes('R$'));
+            const bestMatch = currencyMatch || valueMatches[valueMatches.length - 1];
+
+            if (bestMatch) {
+                const valueString = bestMatch[0];
+                try {
+                    let cleaned = valueString.replace(/R\$\s?/i, '').trim();
+
+                    if (cleaned.includes(',') && !cleaned.includes('.')) {
+                            cleaned = cleaned.replace(',', '.');
+                    } else if (cleaned.includes('.') && cleaned.includes(',')) {
+                            cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+                    } else if (cleaned.includes('.')) {
+                            cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+                    }
+
+                    const parsedValue = parseFloat(cleaned);
+                    if (!isNaN(parsedValue)) {
+                        amount = parsedValue;
+                        const idx = bestMatch.index!;
+                        description = description.substring(0, idx) + description.substring(idx + valueString.length);
+                    }
+                } catch(e) {}
+            }
+        }
+
+        description = description.replace(/\s+/g, ' ').trim();
+        description = description.replace(/\breais\b/gi, '').trim();
+        description = description.replace(/R\$\s*$/i, '').trim();
+
+        if (description.length === 0 && date) description = "Sem descrição";
+
+        results.push(createTransaction(
+            date || '',
+            description,
+            description,
+            amount,
+            'expense',
+            categoryMappings
+        ));
+    });
+    return results;
+};
+
 export const parseNubank = (text: string, categoryMappings?: Record<string, string>): ImportedTransaction[] => {
     const results: ImportedTransaction[] = [];
     const lines = text.split('\n');

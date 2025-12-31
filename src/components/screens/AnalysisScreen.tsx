@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatCurrencyBRL, parseMoney } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Upload, Loader2, Trash2, Search, X, Info, Eraser, Bug, CheckCircle, Copy, MessageSquarePlus, AlertTriangle } from 'lucide-react';
-import { createTransaction as importersCreateTransaction } from '@/lib/importers';
+import { createTransaction as importersCreateTransaction, parseSimpleList as importersParseSimpleList } from '@/lib/importers';
 
 const MONTH_MAP: Record<string, string> = {'JAN':'01','FEV':'02','MAR':'03','ABR':'04','MAI':'05','JUN':'06','JUL':'07','AGO':'08','SET':'09','OUT':'10','NOV':'11','DEZ':'12','JANEIRO':'01','FEVEREIRO':'02','MARÇO':'03','ABRIL':'04','MAIO':'05','JUNHO':'06','JULHO':'07','AGOSTO':'08','SETEMBRO':'09','OUTUBRO':'10','NOVEMBRO':'11','DEZEMBRO':'12'};
 
@@ -105,75 +105,7 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
 
     const parseSimpleList = (text: string): ImportedTransaction[] => {
         addLog(">>> Iniciando Parser de Lista Simples");
-        const results: ImportedTransaction[] = [];
-        const lines = text.split('\n').filter(l => l.trim().length > 0);
-        const dateRegex = /(\d{2}[\/\-]\d{2}(?:[\/\-]\d{2,4})?)/;
-        
-        lines.forEach(line => {
-            let cleanLine = line.trim();
-            if(cleanLine.length < 3) return;
-
-            let date: string | null = null;
-            let amount: number = 0;
-            let description = cleanLine;
-
-            const dateMatch = description.match(dateRegex);
-            if (dateMatch) {
-                let foundDate = dateMatch[0].replace(/-/g, '/');
-                const parts = foundDate.split('/');
-                if (parts.length === 2) foundDate = `${parts[0]}/${parts[1]}/${new Date().getFullYear()}`;
-                else if (parts.length === 3 && parts[2].length === 2) foundDate = `${parts[0]}/${parts[1]}/20${parts[2]}`;
-                const testDate = new Date(foundDate.split('/').reverse().join('-'));
-                if (!isNaN(testDate.getTime())) {
-                    date = foundDate;
-                    description = description.replace(dateMatch[0], '').trim();
-                }
-            }
-
-            const valueMatches = [...description.matchAll(/(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)/g)];
-            if (valueMatches.length > 0) {
-                const currencyMatch = valueMatches.find(m => m[0].includes('R$'));
-                const bestMatch = currencyMatch || valueMatches[valueMatches.length - 1];
-
-                if (bestMatch) {
-                    const valueString = bestMatch[0];
-                    try {
-                        let cleaned = valueString.replace(/R\$\s?/i, '').trim();
-
-                        if (cleaned.includes(',') && !cleaned.includes('.')) {
-                             cleaned = cleaned.replace(',', '.');
-                        } else if (cleaned.includes('.') && cleaned.includes(',')) {
-                             cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-                        } else if (cleaned.includes('.')) {
-                             cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-                        }
-
-                        const parsedValue = parseFloat(cleaned);
-                        if (!isNaN(parsedValue)) {
-                            amount = parsedValue;
-                            const idx = bestMatch.index!;
-                            description = description.substring(0, idx) + description.substring(idx + valueString.length);
-                        }
-                    } catch(e) { addLog(`Não foi possível extrair valor de: ${valueString}`); }
-                }
-            }
-
-            description = description.replace(/\s+/g, ' ').trim();
-            description = description.replace(/\breais\b/gi, '').trim();
-            description = description.replace(/R\$\s*$/i, '').trim();
-
-            if (description.length === 0 && date) description = "Sem descrição";
-
-            results.push(importersCreateTransaction(
-                date || '',
-                description,
-                description, // sender (same as description for simple list)
-                amount,
-                'expense', // Default type
-                state.categoryMappings // categoryMappings
-            ));
-        });
-        return results;
+        return importersParseSimpleList(text, state.categoryMappings);
     };
 
   const processText = (forceGeneric = false) => {
