@@ -61,7 +61,7 @@ export interface FinancialState {
     categories: Category[];
     settings: UserSettings;
     categoryMappings: Record<string, string>;
-    viewDate?: string; // Format: ISO String or YYYY-MM depending on usage, sticking to my impl (ISO) for now but respecting user adding it
+    viewDate: string; // Format: YYYY-MM
 }
 
 export interface ImportedTransaction {
@@ -71,6 +71,7 @@ export interface ImportedTransaction {
     amount: string | number;
     date: string;
     category: string;
+    type: 'income' | 'expense';
     cycle: 'day_05' | 'day_20';
     installments?: { current: number, total: number };
     isDuplicate?: boolean;

@@ -10,6 +10,7 @@ import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautif
 import { detectBank, parseBradesco, parseMercadoPago, parseNubank, parsePicPay, parseGenericScanner, parseExcel } from '@/lib/importers';
 import { formatCurrencyBRL } from '@/lib/utils';
 
+
 interface UniversalImporterProps {
     onImport: (transactions: ImportedTransaction[]) => void;
     onClose: () => void;
@@ -25,6 +26,7 @@ export const UniversalImporter: React.FC<UniversalImporterProps> = ({ onImport, 
     const [linkedDebts, setLinkedDebts] = useState<Record<string, string>>({});
     const [importSource, setImportSource] = useState<'paste' | 'file'>('paste');
     const [isBrowser, setIsBrowser] = useState(false);
+    const [detectedBank, setDetectedBank] = useState<string>('Genérico');
 
     useEffect(() => {
         setIsBrowser(true);
@@ -60,15 +62,18 @@ export const UniversalImporter: React.FC<UniversalImporterProps> = ({ onImport, 
 
         try {
             if (isExcel) {
+                setDetectedBank('Excel');
                 found = parseExcel(jsonData, mappings);
             } else {
                 const bank = detectBank(inputRaw);
+                setDetectedBank(bank);
                 if (bank === 'Bradesco') found = parseBradesco(inputRaw, mappings);
                 else if (bank === 'PicPay') found = parsePicPay(inputRaw, mappings);
                 else if (bank === 'Mercado Pago') found = parseMercadoPago(inputRaw, mappings);
                 else if (bank === 'Nubank') found = parseNubank(inputRaw, mappings);
 
                 if (found.length === 0) {
+                    setDetectedBank('Genérico');
                     found = parseGenericScanner(inputRaw, mappings);
                 }
             }
@@ -84,11 +89,15 @@ export const UniversalImporter: React.FC<UniversalImporterProps> = ({ onImport, 
         });
 
         if (found.length > 0) {
-            const firstDate = new Date(found[0].date.split('/').reverse().join('-'));
-            const monthStr = `${firstDate.getFullYear()}-${String(firstDate.getMonth() + 1).padStart(2, '0')}`;
-            const cycles = getCyclesForMonth(monthStr);
-            const debts = cycles.flatMap(c => c.debts).filter(d => !d.isPaid);
-            setOpenDebts(debts);
+            const firstDateStr = found[0].date.split('/').reverse().join('-');
+            const firstDate = new Date(firstDateStr);
+            // Check if date is valid before proceeding
+            if (!isNaN(firstDate.getTime())) {
+                 const monthStr = `${firstDate.getFullYear()}-${String(firstDate.getMonth() + 1).padStart(2, '0')}`;
+                 const cycles = getCyclesForMonth(monthStr);
+                 const debts = cycles.flatMap(c => c.debts).filter(d => !d.isPaid);
+                 setOpenDebts(debts);
+            }
         }
 
         setPreview(found);
@@ -172,7 +181,9 @@ export const UniversalImporter: React.FC<UniversalImporterProps> = ({ onImport, 
                 <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Importação Massiva</h2>
-                        <p className="text-sm text-slate-500">Revise e edite seus dados antes de confirmar.</p>
+                        <p className="text-sm text-slate-500">
+                            {step === 'input' ? 'Arraste um arquivo ou cole o texto para começar.' : `Banco detectado: ${detectedBank}. Revise e edite antes de importar.`}
+                        </p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-red-500 transition-colors">
                         <X className="h-6 w-6" />
@@ -183,11 +194,11 @@ export const UniversalImporter: React.FC<UniversalImporterProps> = ({ onImport, 
                         <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8 h-full">
                             <label className="border-2 border-dashed border-blue-200 bg-blue-50/30 hover:bg-blue-50 hover:border-blue-400 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group p-10 text-center">
                                 <div className="bg-white p-4 rounded-full shadow-sm mb-4 group-hover:scale-110 transition-transform">
-                                    <UploadCloud className="h-10 w-10 text-blue-500" />
+                                    {loading ? <Loader2 className="h-10 w-10 text-blue-500 animate-spin"/> : <UploadCloud className="h-10 w-10 text-blue-500" />}
                                 </div>
-                                <h3 className="text-lg font-bold text-slate-700">Arraste seu arquivo aqui</h3>
+                                <h3 className="text-lg font-bold text-slate-700">{loading ? 'Processando...' : 'Arraste seu arquivo aqui'}</h3>
                                 <p className="text-sm text-slate-400 mt-2">PDF, Excel, CSV ou TXT</p>
-                                <input type="file" className="hidden" onChange={handleFileUpload} />
+                                <input type="file" className="hidden" onChange={handleFileUpload} disabled={loading}/>
                             </label>
                             <div className="flex flex-col h-full">
                                 <label className="text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
@@ -199,8 +210,8 @@ export const UniversalImporter: React.FC<UniversalImporterProps> = ({ onImport, 
                                     value={text}
                                     onChange={(e) => setText(e.target.value)}
                                 />
-                                <Button onClick={() => processText(text, 'paste')} disabled={!text} className="mt-4 w-full h-12 text-base shadow-lg shadow-blue-200">
-                                    Processar Texto
+                                <Button onClick={() => processText(text, 'paste')} disabled={!text || loading} className="mt-4 w-full h-12 text-base shadow-lg shadow-blue-200">
+                                    {loading ? <Loader2 className="h-5 w-5 animate-spin"/> : 'Processar Texto'}
                                 </Button>
                             </div>
                         </div>
@@ -316,8 +327,8 @@ export const UniversalImporter: React.FC<UniversalImporterProps> = ({ onImport, 
                         {step === 'input' ? 'Cancelar' : 'Voltar'}
                     </Button>
                     {step === 'preview' && (
-                        <Button onClick={confirmImport} className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 px-8">
-                            Importar {preview.length} Itens
+                        <Button onClick={confirmImport} disabled={preview.length === 0} className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 px-8">
+                           <Check className="mr-2 h-4 w-4"/> Importar {preview.length} Itens
                         </Button>
                     )}
                 </div>

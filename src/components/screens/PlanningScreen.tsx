@@ -13,8 +13,8 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { UniversalImporter } from '@/components/UniversalImporter';
-import { EditDebtModal } from '@/components/modals/EditDebtModal'; // Import Component
-// import { isOverdue } from '@/lib/dateUtils'; // Use local overdue logic for now if import fails or conflicts, merging logic carefully.
+import { EditDebtModal } from '@/components/modals/EditDebtModal';
+import { isOverdue } from '@/lib/dateUtils';
 
 // Funções de máscara de valor
 const handleAmountChange = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -35,7 +35,7 @@ const parseAmount = (formattedAmount: string): number => {
 };
 
 // --- COMPONENTE CICLO (Card de Estatísticas) ---
-const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, onEditDebt, onEditInc, onDeleteDebt, onDeleteInc, onMove, categories, isProjection, showPaymentControl, onTogglePaid, onToggleDebt, onToggleInc }: any) => {
+const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, onEditDebt, onEditInc, onDeleteDebt, onDeleteInc, onMove, categories, isProjection, onToggleDebt, onToggleInc }: any) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [drillCategory, setDrillCategory] = useState<string | null>(null);
     const [minimizeIncomes, setMinimizeIncomes] = useState(false);
@@ -70,17 +70,12 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 
     const activeSlice = stats.chartData.find((d: any) => d.name === drillCategory);
 
-    // Determines if we should show controls: Not projection OR explicitly shown
-    const showControls = !isProjection || showPaymentControl;
-
     // Calculate Overdue Count
     const overdueCount = useMemo(() => {
-        // Simple logic for overdue check
-        const todayStr = new Date().toISOString().split('T')[0];
-        return filteredItems.filter((it: any) => !it.isPaid && it.dueDate < todayStr).length;
+        return filteredItems.filter((it: any) => isOverdue(it.dueDate, it.isPaid)).length;
     }, [filteredItems]);
 
-    // PAID Checkbox Component (from master)
+    // PAID Checkbox Component
     const PaidCheckbox = ({ checked, onClick }: { checked: boolean, onClick: () => void }) => {
         if (checked) {
             return (
@@ -105,7 +100,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                             <span className="text-green-700 font-bold">+{formatCurrencyBRL(stats.inc)}</span>
                             <span className="text-red-600 font-bold">-{formatCurrencyBRL(stats.exp)}</span>
                         </div>
-                        {overdueCount > 0 && (
+                        {overdueCount > 0 && !isProjection && (
                             <div className="flex items-center gap-1 text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full w-fit font-bold border border-red-200 animate-in fade-in slide-in-from-left-2">
                                 <AlertTriangle className="h-3 w-3" /> {overdueCount} contas vencidas
                             </div>
@@ -174,8 +169,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                     {incomes.map((inc: any) => (
                                         <div key={inc.id} className={`flex justify-between items-center bg-green-50/50 p-2 rounded border border-green-100/50 text-xs ${inc.isPaid ? 'opacity-60' : ''}`}>
                                             <div className="flex items-center gap-2">
-                                                {/* Checkbox for incomes logic - support from master */}
-                                                {onToggleInc && (
+                                                {!isProjection && (
                                                      <div onClick={() => onToggleInc(inc.id)} className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${inc.isPaid ? 'bg-green-600 border-green-600' : 'bg-white border-green-300'}`}>
                                                          {inc.isPaid && <Check className="h-3 w-3 text-white" />}
                                                      </div>
@@ -185,7 +179,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <span className="font-bold text-green-700">{formatCurrencyBRL(inc.amount)}</span>
-                                                {showControls && (
+                                                {!isProjection && (
                                                     <div className="flex gap-1">
                                                         <Pencil className="h-3 w-3 text-blue-400 cursor-pointer" onClick={() => onEditInc(inc)} />
                                                         <Trash2 className="h-3 w-3 text-red-400 cursor-pointer" onClick={() => onDeleteInc(inc.id)} />
@@ -211,8 +205,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                         {!minimizeExpenses && (
                             <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
                                 {filteredItems.map((it: any) => {
-                                    const todayStr = new Date().toISOString().split('T')[0];
-                                    const overdue = !it.isPaid && it.dueDate < todayStr;
+                                    const overdue = isOverdue(it.dueDate, it.isPaid);
                                     const itemClass = it.isPaid
                                         ? 'bg-green-50 border-green-200 opacity-60'
                                         : overdue
@@ -222,13 +215,9 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                     return (
                                     <div key={it.id} className={`${itemClass} p-2.5 rounded-lg shadow-sm border text-xs hover:border-slate-300 transition-all flex justify-between items-start`}>
                                         <div className="flex items-start gap-3 flex-1">
-                                            {showControls && (onTogglePaid || onToggleDebt) && (
+                                            {!isProjection && (
                                                 <div className="mt-0.5">
-                                                    {/* Use onTogglePaid (my feature) or onToggleDebt (master feature), preferring my unified handler if present */}
-                                                    <PaidCheckbox checked={!!it.isPaid} onClick={() => {
-                                                        if (onTogglePaid) onTogglePaid(it.id, !it.isPaid);
-                                                        else if (onToggleDebt) onToggleDebt(it.id);
-                                                    }} />
+                                                    <PaidCheckbox checked={!!it.isPaid} onClick={() => onToggleDebt(it.id)} />
                                                 </div>
                                             )}
                                             <div>
@@ -243,12 +232,13 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                                         {overdue && !it.isPaid && <Flame className="h-3 w-3 fill-red-500 text-red-600 animate-pulse" />}
                                                     </span>
                                                     <span className="text-[9px] px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: getCatColor(it.category || 'Outros') }}>{it.category || 'Outros'}</span>
+                                                    {it.needsReview && <span className="flex items-center gap-1 text-[9px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-200"><AlertTriangle className="h-3 w-3"/> Revisar</span>}
                                                 </div>
                                             </div>
                                         </div>
                                         <div className="text-right pl-2">
                                             <div className={`font-bold ${it.isPaid ? 'text-green-700 line-through decoration-green-700/50' : 'text-red-600'}`}>-{formatCurrencyBRL(it.displayVal || it.installmentAmount)}</div>
-                                            {showControls && (
+                                            {!isProjection && (
                                                 <div className="flex gap-2 mt-1 justify-end items-center">
                                                     <Pencil className="h-3.5 w-3.5 text-slate-400 hover:text-blue-500 cursor-pointer" onClick={() => onEditDebt(it)} />
                                                     <Trash2 className="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer" onClick={() => onDeleteDebt(it.id)} />
@@ -269,13 +259,9 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 };
 
 export const PlanningScreen = () => {
-    // Merge context from both
     const { state, updateSettings, addCategory, removeCategory, addTransaction, updateTransaction, deleteTransaction, addDebt, deleteDebt, updateDebt, switchCycle, clearDatabase, setViewDate, getCyclesForMonth, toggleDebtStatus, toggleTransactionStatus, addBatchedTransactions } = useFinancials();
 
     const [activeTab, setActiveTab] = useState<'current' | 'projection'>('current');
-
-    // Use viewDate from state (my feature)
-    // Master branch introduced local 'currentDate' for its own navigation. I will unify this to use 'viewDate' from context.
     const [showSettings, setShowSettings] = useState(false);
     const [showImporter, setShowImporter] = useState(false);
     const [showHelpModal, setShowHelpModal] = useState(false);
@@ -318,27 +304,31 @@ export const PlanningScreen = () => {
     const [quickType, setQuickType] = useState<'expense' | 'income'>('expense');
 
     // Navigation handlers
-    const nextMonth = () => {
-        const current = state.viewDate ? new Date(state.viewDate) : new Date();
-        const next = new Date(current.getFullYear(), current.getMonth() + 1, 1);
-        setViewDate(next.toISOString());
-    };
-
-    const prevMonth = () => {
-        const current = state.viewDate ? new Date(state.viewDate) : new Date();
-        const prev = new Date(current.getFullYear(), current.getMonth() - 1, 1);
-        setViewDate(prev.toISOString());
+    const changeMonth = (direction: 'prev' | 'next') => {
+        const [year, month] = state.viewDate.split('-').map(Number);
+        const currentDate = new Date(year, month - 1, 1);
+        if (direction === 'prev') {
+            currentDate.setMonth(currentDate.getMonth() - 1);
+        } else {
+            currentDate.setMonth(currentDate.getMonth() + 1);
+        }
+        const newMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+        setViewDate(newMonthStr);
     };
 
     const resetToToday = () => {
-        setViewDate(new Date().toISOString());
+        const today = new Date();
+        const todayMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+        setViewDate(todayMonthStr);
     };
 
-    // Toggle Paid handler (Adapter for my logic vs master logic)
-    const handleTogglePaid = (id: string, isPaid: boolean) => {
-        if (toggleDebtStatus) toggleDebtStatus(id);
-        else updateDebt(id, { isPaid });
-    };
+    const currentMonthLabel = useMemo(() => {
+        if (!state.viewDate) return '';
+        const [year, month] = state.viewDate.split('-').map(Number);
+        const date = new Date(year, month - 1, 1);
+        return format(date, 'MMMM yyyy', { locale: ptBR });
+    }, [state.viewDate]);
+
 
     // Auto-cálculo parcelas
     useEffect(() => {
@@ -399,7 +389,6 @@ export const PlanningScreen = () => {
                 if (e.target?.result) {
                     try {
                         const parsed = JSON.parse(e.target.result as string);
-                        // Validate basic structure
                         if (parsed.cycles && parsed.categories && parsed.settings) {
                             localStorage.setItem('finance_db_v7', JSON.stringify(parsed));
                             window.location.reload();
@@ -416,7 +405,6 @@ export const PlanningScreen = () => {
 
     // Helpers
     const getCycleStats = (debts: Debt[], transactions: any[]) => {
-        // Filter debts that are "active" (currentInstallment >= 1) for the current month view
         const activeDebts = debts.filter(d => d.currentInstallment >= 1);
         const inc = transactions.reduce((a, b) => a + b.amount, 0);
         const exp = activeDebts.reduce((a, b) => a + b.installmentAmount, 0);
@@ -427,15 +415,15 @@ export const PlanningScreen = () => {
     };
 
     const currentMonthCycles = useMemo(() => {
-        const d = state.viewDate ? new Date(state.viewDate) : new Date();
-        const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        return getCyclesForMonth(monthStr);
+        return getCyclesForMonth(state.viewDate);
     }, [state.viewDate, state.cycles, getCyclesForMonth]);
 
     const currentMonthStats = useMemo(() => {
-        if (!currentMonthCycles || currentMonthCycles.length < 2) return { c1: { inc: 0, exp: 0, bal: 0, chartData: [] }, c2: { inc: 0, exp: 0, bal: 0, chartData: [] } };
-        const c1 = getCycleStats(currentMonthCycles[0].debts, currentMonthCycles[0].transactions);
-        const c2 = getCycleStats(currentMonthCycles[1].debts, currentMonthCycles[1].transactions);
+        const c1Data = currentMonthCycles[0] || { debts: [], transactions: [] };
+        const c2Data = currentMonthCycles[1] || { debts: [], transactions: [] };
+
+        const c1 = getCycleStats(c1Data.debts, c1Data.transactions);
+        const c2 = getCycleStats(c2Data.debts, c2Data.transactions);
         return { c1, c2 };
     }, [currentMonthCycles]);
 
@@ -447,18 +435,20 @@ export const PlanningScreen = () => {
     }, [currentMonthStats]);
 
     const monthItems = useMemo(() => {
-        if (!currentMonthCycles || currentMonthCycles.length < 2) return { incomes: [], debts: [] };
-        const incomes = [...currentMonthCycles[0].transactions, ...currentMonthCycles[1].transactions];
-        const debts = [...currentMonthCycles[0].debts, ...currentMonthCycles[1].debts].filter(d => d.currentInstallment >= 1);
+        const c1Data = currentMonthCycles[0] || { debts: [], transactions: [] };
+        const c2Data = currentMonthCycles[1] || { debts: [], transactions: [] };
+
+        const incomes = [...c1Data.transactions, ...c2Data.transactions];
+        const debts = [...c1Data.debts, ...c2Data.debts].filter(d => d.currentInstallment >= 1);
         return { incomes, debts };
     }, [currentMonthCycles]);
 
     const projectionData = useMemo(() => {
         if (!state.cycles) return [];
         const arr = [];
-        const viewDate = state.viewDate ? new Date(state.viewDate) : new Date();
+        const [viewYear, viewMonth] = state.viewDate.split('-').map(Number);
+        const viewDate = new Date(viewYear, viewMonth - 1, 1);
 
-        // 1. Get ALL debts and fixed incomes from all cycles
         const allDebts = state.cycles.flatMap(c => c.debts);
         const allIncomes = state.cycles.flatMap(c => c.transactions);
         const fixedIncomes = allIncomes.filter(t => t.isFixed);
@@ -468,6 +458,8 @@ export const PlanningScreen = () => {
             const mLabel = `${MONTHS_FULL[fDate.getMonth()]} ${fDate.getFullYear()}`;
             const cycle1Debts: any[] = [];
             const cycle2Debts: any[] = [];
+            
+            const monthStr = `${fDate.getFullYear()}-${String(fDate.getMonth() + 1).padStart(2, '0')}`;
 
             allDebts.forEach(d => {
                 let active = false;
@@ -475,17 +467,11 @@ export const PlanningScreen = () => {
                 let curr = 0;
 
                 if (d.isFixed) {
-                    // Fixed debts are active in every projection month.
                     active = true;
-                    curr = 0; // Not an installment, so no number.
-                } else {
-                    // 2. Correctly calculate installment based on purchaseDate
-                    const debtStartDate = new Date(d.purchaseDate || new Date());
-                    
-                    // Calculate the difference in months between the projection month and the debt's start month.
+                    curr = 0;
+                } else if(d.purchaseDate){
+                    const debtStartDate = new Date(d.purchaseDate);
                     const monthDiff = (fDate.getFullYear() - debtStartDate.getFullYear()) * 12 + (fDate.getMonth() - debtStartDate.getMonth());
-
-                    // The installment number is this difference + 1.
                     const projectedInstallment = monthDiff + 1;
 
                     if (projectedInstallment >= 1 && projectedInstallment <= d.totalInstallments) {
@@ -501,9 +487,8 @@ export const PlanningScreen = () => {
                 }
             });
 
-            const cyclesForProjectedMonth = getCyclesForMonth(`${fDate.getFullYear()}-${String(fDate.getMonth() + 1).padStart(2, '0')}`);
-            const c1Incomes = cyclesForProjectedMonth.length > 0 ? cyclesForProjectedMonth[0].transactions : [];
-            const c2Incomes = cyclesForProjectedMonth.length > 1 ? cyclesForProjectedMonth[1].transactions : [];
+            const c1Incomes = fixedIncomes.filter(t => t.cycle === 'day_05');
+            const c2Incomes = fixedIncomes.filter(t => t.cycle === 'day_20');
             
             const c1 = getCycleStats(cycle1Debts, c1Incomes);
             const c2 = getCycleStats(cycle2Debts, c2Incomes);
@@ -511,7 +496,8 @@ export const PlanningScreen = () => {
             arr.push({ label: mLabel, date: fDate, cycle1: { items: cycle1Debts, ...c1, incomes: c1Incomes }, cycle2: { items: cycle2Debts, ...c2, incomes: c2Incomes }, totalBal: c1.bal + c2.bal });
         }
         return arr;
-    }, [state]);
+    }, [state.cycles, state.viewDate]);
+
 
     // Actions
     const saveConfig = () => {
@@ -523,7 +509,11 @@ export const PlanningScreen = () => {
     const addInc = () => {
         const val = parseAmount(incomeAmount);
         if (!incomeName || val <= 0) return toast.error("Preencha campos corretamente.");
-        addTransaction({ description: incomeName, amount: val, type: 'income', category: 'Salário', date: new Date().toISOString(), isFixed: isIncomeFixed, cycle: state.settings.hasAdvance ? incomeCycle : 'day_05' });
+        
+        const [year, month] = state.viewDate.split('-').map(Number);
+        let targetDate = new Date(year, month - 1, 10);
+
+        addTransaction({ description: incomeName, amount: val, type: 'income', category: 'Salário', date: targetDate.toISOString(), isFixed: isIncomeFixed, cycle: state.settings.hasAdvance ? incomeCycle : 'day_05' });
         setIncomeName(''); setIncomeAmount(''); toast.success("Renda adicionada");
     }
 
@@ -540,6 +530,7 @@ export const PlanningScreen = () => {
             finalInst = iVal;
             finalTotal = count;
         }
+
         addDebt({
             name: fName, totalAmount: total, installmentAmount: finalInst,
             dueDate: isFixed ? 'Mensal' : (isInstallment ? `Fat. ${billingMonth}` : debtDate),
@@ -558,7 +549,6 @@ export const PlanningScreen = () => {
     const openEditInc = (t: Transaction) => { setEditingItem({ ...t }); setEditType('income'); setIsEditModalOpen(true); }
 
     const saveEdit = (updated: any) => {
-        // Handle updated logic from master
         if (updated && 'id' in updated) {
              if (editType === 'debt') {
                 updateDebt(updated.id, updated);
@@ -576,14 +566,14 @@ export const PlanningScreen = () => {
         if (!quickDesc || val <= 0) return;
 
         if (quickType === 'expense') {
-                    addDebt({
-                        name: quickDesc, totalAmount: val, installmentAmount: val,
-                        dueDate: 'Previsto', purchaseDate: dateObj.toISOString(),
-                        currentInstallment: 1,
-                        totalInstallments: 1, isFixed: false,
-                        billingMonth: MONTHS_FULL[dateObj.getMonth()], category: 'Outros', cycle: quickCycle,
-                        needsReview: true
-                    });
+            addDebt({
+                name: quickDesc, totalAmount: val, installmentAmount: val,
+                dueDate: 'Previsto', purchaseDate: dateObj.toISOString(),
+                currentInstallment: 1,
+                totalInstallments: 1, isFixed: false,
+                billingMonth: MONTHS_FULL[dateObj.getMonth()], category: 'Outros', cycle: quickCycle,
+                needsReview: true
+            });
             toast.success("Saída prevista adicionada");
         } else {
              addTransaction({ 
@@ -597,33 +587,16 @@ export const PlanningScreen = () => {
         setQuickDesc(''); setQuickVal(''); 
     }
 
-    const handleEditItemAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const rawValue = e.target.value.replace(/\D/g, '');
-        
-        setEditingItem(prev => {
-            if (!prev) return null;
-
-            if (!rawValue) {
-                return { ...prev, [editType === 'debt' ? 'installmentAmount' : 'amount']: '' as any };
-            }
-
-            const numericValue = parseInt(rawValue, 10);
-            const formattedValue = (numericValue / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            return { ...prev, [editType === 'debt' ? 'installmentAmount' : 'amount']: formattedValue as any };
-        });
-    };
-
     return (
         <div className="space-y-6 pb-24 relative">
             {/* Header / Tabs */}
             <div className="flex flex-col items-center gap-4 mb-6">
-                 {/* Navigation Month */}
                  <div className="flex items-center gap-4 bg-white p-2 rounded-xl shadow-sm border">
-                    <Button variant="ghost" size="icon" onClick={prevMonth}><ChevronLeft className="h-5 w-5 text-slate-600" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => changeMonth('prev')}><ChevronLeft className="h-5 w-5 text-slate-600" /></Button>
                     <button onClick={resetToToday} className="text-center w-40 font-bold text-lg capitalize text-slate-700 hover:text-blue-600 transition-colors">
-                        {format(state.viewDate ? new Date(state.viewDate) : new Date(), 'MMMM yyyy', { locale: ptBR })}
+                        {currentMonthLabel}
                     </button>
-                    <Button variant="ghost" size="icon" onClick={nextMonth}><ChevronRight className="h-5 w-5 text-slate-600" /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => changeMonth('next')}><ChevronRight className="h-5 w-5 text-slate-600" /></Button>
                  </div>
 
                 <div className="w-full flex justify-center items-center relative">
@@ -711,26 +684,18 @@ export const PlanningScreen = () => {
             {activeTab === 'current' && (
                 <div className="space-y-6 animate-in fade-in">
                     <div className={`grid grid-cols-1 ${state.settings.hasAdvance ? 'md:grid-cols-2' : ''} gap-4`}>
-                        {currentMonthCycles.length >= 2 && (
-                            <>
-                                <CycleSection
-                                    title={`Ciclo ${state.settings.salaryDay}`} stats={currentMonthStats.c1}
-                                    items={currentMonthCycles[0].debts.filter(d => d.currentInstallment >= 1)}
-                                    incomes={currentMonthCycles[0].transactions}
-                                    colorClass="bg-blue-50 border-blue-100" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories}
-                                    onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
-                                    onTogglePaid={handleTogglePaid}
-                                />
-                                {state.settings.hasAdvance && <CycleSection
-                                    title={`Ciclo ${state.settings.advanceDay}`} stats={currentMonthStats.c2}
-                                    items={currentMonthCycles[1].debts.filter(d => d.currentInstallment >= 1)}
-                                    incomes={currentMonthCycles[1].transactions}
-                                    colorClass="bg-emerald-50 border-emerald-100" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories}
-                                    onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
-                                    onTogglePaid={handleTogglePaid}
-                                />}
-                            </>
-                        )}
+                        <CycleSection
+                            title={`Ciclo ${state.settings.salaryDay}`} stats={currentMonthStats.c1} items={currentMonthCycles[0]?.debts || []} incomes={currentMonthCycles[0]?.transactions || []}
+                            colorClass="bg-blue-50 border-blue-100" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories}
+                            onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
+                            onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
+                        />
+                        {state.settings.hasAdvance && <CycleSection
+                            title={`Ciclo ${state.settings.advanceDay}`} stats={currentMonthStats.c2} items={currentMonthCycles[1]?.debts || []} incomes={currentMonthCycles[1]?.transactions || []}
+                            colorClass="bg-emerald-50 border-emerald-100" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories}
+                            onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
+                            onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
+                        />}
                     </div>
 
                     <Card className="border-t-4 border-t-slate-800 shadow-sm">
@@ -850,9 +815,6 @@ export const PlanningScreen = () => {
             {/* TAB: PROJEÇÃO */}
             {activeTab === 'projection' && (
                 <div className="flex flex-col gap-6 animate-in fade-in">
-                    
-
-
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                         {projectionData.map((m, idx) => (
                             <Card key={idx} className={`transition-all duration-300 border-t-4 ${m.totalBal >= 0 ? 'border-t-green-500' : 'border-t-red-500'} ${expandedMonthIndex === idx ? 'md:col-span-2 xl:col-span-3 ring-4 ring-blue-100 shadow-2xl z-10' : 'hover:shadow-lg bg-slate-50/50'}`}>
@@ -873,16 +835,16 @@ export const PlanningScreen = () => {
                                                 title={`Ciclo ${state.settings.salaryDay}`} stats={m.cycle1} items={m.cycle1.items} incomes={m.cycle1.incomes} 
                                                 colorClass="bg-blue-50/50" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories} 
                                                 onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle} 
-                                                isProjection showPaymentControl={true} onTogglePaid={handleTogglePaid}
+                                                isProjection onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
                                             />
                                             {state.settings.hasAdvance && <CycleSection 
                                                 title={`Ciclo ${state.settings.advanceDay}`} stats={m.cycle2} items={m.cycle2.items} incomes={m.cycle2.incomes} 
                                                 colorClass="bg-emerald-50/50" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories} 
                                                 onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle} 
-                                                isProjection showPaymentControl={true} onTogglePaid={handleTogglePaid}
+                                                isProjection onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
                                             />}
                                         </div>
-                                        {/* QUICK ADD ENHANCED (PHASE 3) */}
+                                        {/* QUICK ADD ENHANCED */}
                                         <div className="mt-4 pt-3 border-t bg-slate-50 p-2 rounded-lg flex flex-col gap-2">
                                             <div className="flex justify-center gap-4 mb-1">
                                                 <button onClick={() => setQuickType('expense')} className={`text-[10px] font-bold uppercase px-3 py-1 rounded-full transition-colors ${quickType === 'expense' ? 'bg-red-100 text-red-700' : 'text-slate-400 hover:bg-slate-100'}`}>Saída</button>

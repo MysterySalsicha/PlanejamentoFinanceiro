@@ -20,7 +20,7 @@ export const detectBank = (text: string): BankType => {
     return 'Genérico';
 };
 
-export const createTransaction = (date: string, description: string, sender: string, amount: number, categoryMappings?: Record<string, string>): ImportedTransaction => {
+const createTransaction = (date: string, description: string, sender: string, amount: number, type: 'income' | 'expense', categoryMappings?: Record<string, string>): ImportedTransaction => {
     let category = '';
     const cleanSender = sender.replace(/[\d.\-\/]{9,}/g, '')
                               .replace(/(\d{2}\/\d{2})/g, '')
@@ -44,17 +44,16 @@ export const createTransaction = (date: string, description: string, sender: str
             if (lower.includes(k)) { category = c; break; }
         }
     }
-    const isPaid = true; // All imported transactions are considered paid
     return {
         id: Math.random().toString(36).substr(2,9),
         date,
         description: description.substring(0, 30),
         sender: cleanSender,
         amount,
+        type,
         category: category || 'Outros',
-        cycle: 'day_05',
+        cycle: 'day_05', // Default cycle, can be changed later
         needsReview: true,
-        isPaid,
     };
 };
 
@@ -66,7 +65,7 @@ export const parseBradesco = (text: string, categoryMappings?: Record<string, st
         const trimmedChunk = chunk.trim();
         if (trimmedChunk.length < 10) continue;
 
-        const dateMatch = trimmedChunk.match(/^(\d{2}\/\d{2}\/\d{4})/); // Corrected from trimmedLine
+        const dateMatch = trimmedChunk.match(/^(\d{2}\/\d{2}\/\d{4})/);
         if (!dateMatch) continue;
 
         const currentDate = dateMatch[1];
@@ -84,7 +83,7 @@ export const parseBradesco = (text: string, categoryMappings?: Record<string, st
             if (isNaN(amount) || amount === 0) continue;
 
             const isCredit = /crédito|rem:|transf saldo|dep/i.test(description);
-            if (isCredit) continue; // For now, we are only importing expenses
+            const type = isCredit ? 'income' : 'expense';
 
             let sender = description
                 .replace(/REM:|DES:/i, '')
@@ -92,7 +91,9 @@ export const parseBradesco = (text: string, categoryMappings?: Record<string, st
                 .replace(/TRANSFERENCIA PIX/i, '')
                 .replace(/\d{2}\/\d{2}/, '')
                 .replace(/\s+\d{6,}\s*/, '')
-            results.push(createTransaction(currentDate, description, sender, amount, categoryMappings));
+                .trim();
+
+            results.push(createTransaction(currentDate, description, sender, amount, type, categoryMappings));
         }
     }
     return results;
@@ -146,7 +147,8 @@ export const parseExcel = (json: any[][], categoryMappings?: Record<string, stri
 
         if (description && !isNaN(amount) && amount > 0) {
             const finalAmount = Math.abs(amount);
-            const transaction = createTransaction(date, description, description, finalAmount, categoryMappings);
+            const type = finalAmount > 0 ? 'expense' : 'income'; // Simple assumption for now
+            const transaction = createTransaction(date, description, description, finalAmount, type, categoryMappings);
             results.push(transaction);
         }
     }
@@ -156,66 +158,66 @@ export const parseExcel = (json: any[][], categoryMappings?: Record<string, stri
 export const parseGenericScanner = (text: string, categoryMappings?: Record<string, string>) => {
     const results: ImportedTransaction[] = [];
     const lines = text.split('\n');
-    let lastDate = '';
+
+    let currentDate = '';
+    let descriptionBuffer: string[] = [];
+
+    const dateRegex = /((\d{2}[\/\-]\d{2}[\/\-]\d{2,4})|(\d{2}\s(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)(?:\s\d{4})?)|(\d{1,2} de \w+ de \d{4}))/i;
+    const valueOnlyRegex = /^(-)?\s?(?:R\$\s)?([\d.,]+,\d{2})$/;
+    const junkRegex = /saldo|total|lançamento|anterior|fatura|fale com a gente|sac:|ouvidoria:|cpf:|agência:|conta:|data\/hora|descrição das|movimentações|extrato gerado/i;
+
+    const processBuffer = (amount: number, isNegative: boolean) => {
+        if (descriptionBuffer.length > 0 && currentDate) {
+            const description = descriptionBuffer.join(' ').trim();
+            let type: 'income' | 'expense' = isNegative ? 'expense' : 'income';
+            if (description.toLowerCase().match(/(recebid|cr[ée]dito|entrada)/)) type = 'income';
+            else if (description.toLowerCase().match(/(pagamento|enviad|d[ée]bito|saída|compra)/)) type = 'expense';
+
+            results.push(createTransaction(currentDate, description, description, amount, type, categoryMappings));
+        }
+        descriptionBuffer = [];
+    };
 
     for (const line of lines) {
         const trimmedLine = line.trim();
-        if (trimmedLine.length < 3) continue;
+        if (trimmedLine.length < 2 || junkRegex.test(trimmedLine)) continue;
 
-        // Regex patterns
-        const patterns = [
-            // With Excel date
-            { regex: /^(\d{5})\s+(.*?)\s+R?\$\s*([\d,.]+)/i, dateIdx: 1, descIdx: 2, amountIdx: 3, isExcel: true },
-            // With date
-            { regex: /((\d{2}\/\d{2}(?:\/\d{2,4})?))\s+(.*?)\s+R?\$\s*([\d,.]+)/i, dateIdx: 1, descIdx: 3, amountIdx: 4 },
-            { regex: /((\d{2}\/\d{2}(?:\/\d{2,4})?))\s+(.*?)\s+([\d,.]+)\s*reais/i, dateIdx: 1, descIdx: 3, amountIdx: 4 },
-            { regex: /((\d{2}\/\d{2}(?:\/\d{2,4})?))\s+(.*?)\s+([\d,.]+)/i, dateIdx: 1, descIdx: 3, amountIdx: 4 },
-            // Without date
-            { regex: /(.*?)\s+R?\$\s*([\d,.]+)/i, dateIdx: -1, descIdx: 1, amountIdx: 2 },
-            { regex: /(.*?)\s+([\d,.]+)\s*reais/i, dateIdx: -1, descIdx: 1, amountIdx: 2 },
-            { regex: /(.*?)\s+([\d,.]+)/i, dateIdx: -1, descIdx: 1, amountIdx: 2 },
-        ];
+        const dateMatch = trimmedLine.match(dateRegex);
+        if (dateMatch && !trimmedLine.match(valueOnlyRegex)) {
+            processBuffer(0, false);
 
-        let matchFound = false;
-        for (const p of patterns) {
-            const match = trimmedLine.match(p.regex);
-            if (match) {
-                let date = lastDate;
-                if (p.dateIdx !== -1) {
-                    if (p.isExcel) {
-                        const excelDate = parseInt(match[p.dateIdx]);
-                        const jsDate = excelDateToJSDate(excelDate);
-                        date = `${jsDate.getDate().toString().padStart(2, '0')}/${(jsDate.getMonth() + 1).toString().padStart(2, '0')}/${jsDate.getFullYear()}`;
-                    } else {
-                        let parsedDate = match[p.dateIdx];
-                        if (parsedDate.length === 5) {
-                            parsedDate += `/${new Date().getFullYear()}`;
-                        }
-                        date = parsedDate;
-                    }
-                    lastDate = date;
-                }
-
-                let description = match[p.descIdx].trim();
-                // remove date from description
-                if (p.dateIdx !== -1) {
-                    description = description.replace(match[p.dateIdx], '').trim();
-                }
-
-                const amountStr = match[p.amountIdx].replace('.', '').replace(',', '.');
-                const amount = parseFloat(amountStr);
-
-                if (description && !isNaN(amount) && amount > 0) {
-                    const finalAmount = Math.abs(amount);
-
-                    const transaction = createTransaction(date, description, description, finalAmount, categoryMappings);
-                    results.push(transaction);
-                    matchFound = true;
-                    break;
-                }
+            let dateStr = '';
+            if (dateMatch[2]) {
+                const parts = dateMatch[2].split(/[\/\-]/);
+                dateStr = `${parts[0]}/${parts[1]}/${parts[2].length === 2 ? '20' + parts[2] : parts[2]}`;
+            } else if (dateMatch[3]) {
+                const parts = dateMatch[3].split(' ');
+                dateStr = `${parts[0]}/${MONTH_MAP[parts[1].toUpperCase()]}/${parts[2] || new Date().getFullYear()}`;
+            } else if (dateMatch[4]) {
+                const parts = dateMatch[4].split(' de ');
+                const month = MONTH_MAP[parts[1].toUpperCase()] || MONTH_MAP[parts[1].toUpperCase().substring(0,3)];
+                if(month) dateStr = `${parts[0].padStart(2, '0')}/${month}/${parts[2]}`;
             }
+
+            if(dateStr) currentDate = dateStr;
+
+            const descPart = trimmedLine.replace(dateMatch[0], "").trim();
+            if (descPart.length > 2) descriptionBuffer.push(descPart);
+
+            continue;
         }
+
+        const valueMatch = trimmedLine.match(valueOnlyRegex);
+        if (valueMatch) {
+            const amount = parseFloat(valueMatch[2].replace(/\./g, '').replace(',', '.'));
+            const isNegative = valueMatch[1] === '-';
+            processBuffer(amount, isNegative);
+            continue;
+        }
+
+        descriptionBuffer.push(trimmedLine);
     }
+    processBuffer(0, false);
     return results;
 };
 
@@ -231,7 +233,6 @@ export const parseMercadoPago = (text: string, categoryMappings?: Record<string,
             const amount = parseFloat(buffer.value.replace('R$ ', '').replace(/\./g, '').replace(',', '.'));
             const absAmount = Math.abs(amount);
             const type = amount < 0 ? 'expense' : 'income';
-            if (type === 'income') return;
 
             let sender = 'Mercado Pago';
             if (fullDescription.includes('Transferência Pix recebida')) {
@@ -248,7 +249,7 @@ export const parseMercadoPago = (text: string, categoryMappings?: Record<string,
                 sender = fullDescription;
             }
 
-            results.push(createTransaction(buffer.date.replace(/-/g, '/'), fullDescription, sender, absAmount, categoryMappings));
+            results.push(createTransaction(buffer.date.replace(/-/g, '/'), fullDescription, sender, absAmount, type, categoryMappings));
         }
         buffer = null;
     };
@@ -283,14 +284,15 @@ export const parseNubank = (text: string, categoryMappings?: Record<string, stri
     const lines = text.split('\n');
 
     let currentDate = '';
+    let currentSection: 'income' | 'expense' | null = null;
     let descriptionBuffer: string[] = [];
 
-    const dateRegex = /(\d{2})\s(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\s(\d{4})/; 
+    const dateRegex = /(\d{2})\s(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\s(\d{4})/;
     const valueOnlyRegex = /^([\d.]*,\d{2})$/;
     const totalRegex = /^\+\s|Total de/;
 
     const processBuffer = (amount: number) => {
-        if (descriptionBuffer.length > 0 && currentDate) {
+        if (descriptionBuffer.length > 0 && currentDate && currentSection) {
             const description = descriptionBuffer.join(' ');
             let sender = description;
 
@@ -300,7 +302,7 @@ export const parseNubank = (text: string, categoryMappings?: Record<string, stri
                 sender = 'Fatura Nubank';
             }
 
-            results.push(createTransaction(currentDate, description, sender, amount, categoryMappings));
+            results.push(createTransaction(currentDate, description, sender, amount, currentSection, categoryMappings));
         }
         descriptionBuffer = [];
     };
@@ -318,10 +320,12 @@ export const parseNubank = (text: string, categoryMappings?: Record<string, stri
 
         if (trimmedLine.toLowerCase().startsWith('total de entradas')) {
             processBuffer(0);
+            currentSection = 'income';
             continue;
         }
         if (trimmedLine.toLowerCase().startsWith('total de saídas')) {
             processBuffer(0);
+            currentSection = 'expense';
             continue;
         }
 
@@ -332,7 +336,7 @@ export const parseNubank = (text: string, categoryMappings?: Record<string, stri
             continue;
         }
 
-        if (currentDate && trimmedLine.length > 2 && !totalRegex.test(trimmedLine)) {
+        if (currentDate && currentSection && trimmedLine.length > 2 && !totalRegex.test(trimmedLine)) {
             descriptionBuffer.push(trimmedLine);
         }
     }
@@ -350,17 +354,16 @@ export const parsePicPay = (text: string, categoryMappings?: Record<string, stri
         if (buffer && buffer.date && buffer.time && buffer.description.length > 0 && buffer.value) {
             const fullDescription = buffer.description.join(' ');
             const hasMinusSign = buffer.value.includes('-');
-            if (!hasMinusSign) return;
-
             const amount = parseFloat(buffer.value.replace(/-? R\$\s?/, '').replace(/\./g, '').replace(',', '.'));
             if (isNaN(amount) || amount === 0) return;
 
+            const type = hasMinusSign ? 'expense' : 'income';
             let sender = fullDescription;
 
             if (fullDescription.startsWith('Pagamento de boleto')) sender = 'Pagamento Boleto';
             else if (fullDescription.startsWith('Recarga em carteira')) sender = 'Recarga PicPay';
 
-            results.push(createTransaction(buffer.date, fullDescription, sender, amount, categoryMappings));
+            results.push(createTransaction(buffer.date, fullDescription, sender, amount, type, categoryMappings));
         }
         buffer = null;
     };
@@ -388,6 +391,6 @@ export const parsePicPay = (text: string, categoryMappings?: Record<string, stri
             }
         }
     }
-    processProcessBuffer();
+    processBuffer();
     return results;
 };

@@ -25,7 +25,7 @@ const initialState: FinancialState = {
   ],
   settings: { salaryDay: 5, hasAdvance: true, advanceDay: 20, theme: 'system' },
   categoryMappings: {},
-  viewDate: new Date().toISOString() // Using ISO string to support my changes, while respecting structure
+  viewDate: getCurrentMonthStr()
 };
 
 interface FinancialContextType {
@@ -67,7 +67,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
             if (!parsed.categoryMappings) parsed.categoryMappings = {};
 
             // Migration: Add viewDate if missing
-            if (!parsed.viewDate) parsed.viewDate = new Date().toISOString();
+            if (!parsed.viewDate) parsed.viewDate = getCurrentMonthStr();
 
             // Migration check: Ensure cycles have month property
             if (parsed.cycles && parsed.cycles.length > 0 && !parsed.cycles[0].month) {
@@ -81,7 +81,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
         const currentMonth = getCurrentMonthStr();
         setState(prev => ({
             ...prev,
-            viewDate: new Date().toISOString(),
+            viewDate: currentMonth,
             cycles: [
                 { id: `${currentMonth}_day_05`, month: currentMonth, type: 'day_05', transactions: [], debts: [] },
                 { id: `${currentMonth}_day_20`, month: currentMonth, type: 'day_20', transactions: [], debts: [] }
@@ -156,7 +156,6 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addDebt = (d: Omit<Debt, 'id'>) => {
-    // If it's an installment debt, we need to create multiple debts for future months
     const dateStr = d.purchaseDate || d.dueDate || new Date().toISOString();
     const dateObj = new Date(dateStr);
 
@@ -164,25 +163,20 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
         let newCycles = [...prev.cycles];
         const count = (d.totalInstallments > 1) ? d.totalInstallments : 1;
 
-        // Loop to create installments
         for (let i = 0; i < count; i++) {
             const installmentDate = new Date(dateObj);
             installmentDate.setMonth(installmentDate.getMonth() + i);
             const monthStr = `${installmentDate.getFullYear()}-${String(installmentDate.getMonth() + 1).padStart(2, '0')}`;
 
-            // Due date adjustment? Assuming same day of month.
-            const dueDateObj = new Date(dateObj);
+            const dueDateObj = new Date(d.dueDate || dateObj);
             dueDateObj.setMonth(dueDateObj.getMonth() + i);
             const dueDateStr = dueDateObj.toISOString().split('T')[0];
 
             newCycles = ensureCyclesForMonth(newCycles, monthStr);
 
             const currentInstallment = d.currentInstallment + i;
-            // Should we add only if currentInstallment <= totalInstallments? Yes.
             if (currentInstallment > d.totalInstallments) break;
 
-            // Create debt for this month
-            // We need to find the cycle within newCycles for this month
             const cycleIndex = newCycles.findIndex(c => c.month === monthStr && c.type === d.cycle);
             if (cycleIndex !== -1) {
                 newCycles[cycleIndex].debts.push({
@@ -191,7 +185,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
                     dueDate: dueDateStr,
                     currentInstallment: currentInstallment,
                     isPaid: false,
-                    needsReview: i === 0 ? (d.needsReview ?? false) : false // Only flag first one if needed? Or none?
+                    needsReview: i === 0 ? (d.needsReview ?? false) : false
                 });
             }
         }
@@ -221,7 +215,6 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
         let debtToMove: Debt | null = null;
         let sourceCycleId: string | null = null;
 
-        // Find the debt and its original cycle
         for (const cycle of prev.cycles) {
             const found = cycle.debts.find(d => d.id === id);
             if (found) {
@@ -232,7 +225,6 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
         }
 
         if (!debtToMove || !sourceCycleId) {
-            // Fallback to simple update if not found (should not happen)
             return { ...prev, cycles: prev.cycles.map(c => ({ ...c, debts: c.debts.map(d => d.id === id ? { ...d, ...updated } : d) })) };
         }
 
@@ -242,7 +234,6 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
         const sourceCycle = prev.cycles.find(c => c.id === sourceCycleId)!;
         const targetCycleId = `${newMonthStr}_${sourceCycle.type}`;
 
-        // If month hasn't changed, just update in place
         if (sourceCycle.month === newMonthStr) {
             return {
                 ...prev,
@@ -252,14 +243,11 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
             };
         }
 
-        // If month has changed, move the debt
         const cyclesWithTarget = ensureCyclesForMonth(prev.cycles, newMonthStr);
         let finalCycles = cyclesWithTarget.map(c => {
-            // Remove from old cycle
             if (c.id === sourceCycleId) {
                 return { ...c, debts: c.debts.filter(d => d.id !== id) };
             }
-            // Add to new cycle
             if (c.id === targetCycleId) {
                 return { ...c, debts: [...c.debts, debtToMove!] };
             }
@@ -314,7 +302,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
       
       const newCycles = prev.cycles.map(c => {
         if (c.type === originalCycleType && c.month === originalCycleMonth) {
-            const otherDebts = c.debts.filter(d => d.id !== debtToSplit!.id);
+            const otherDebts = c.debts.filter(d => d.id !== debtId);
             const paidPart: Debt = {
                 ...debtToSplit!,
                 id: uuidv4(),
@@ -420,20 +408,27 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
             }
 
             if (idx !== -1) {
-                // All imported transactions are 'expense' now
-                const isInst = !!t.installments;
-                const finalName = t.sender ? t.sender : t.description;
+                if (t.type === 'income') {
+                    newCycles[idx].transactions.push({
+                        id: uuidv4(), description: t.sender || t.description, amount: Math.abs(amount),
+                        type: 'income', category: t.category || 'Salário', date: t.date, isFixed: false, cycle: targetType,
+                        needsReview: true, isPaid: false
+                    });
+                } else {
+                    const isInst = !!t.installments;
+                    const finalName = t.sender ? t.sender : t.description;
 
-                newCycles[idx].debts.push({
-                    id: uuidv4(), name: finalName,
-                    totalAmount: Math.abs(amount) * (isInst ? t.installments!.total : 1),
-                    installmentAmount: Math.abs(amount), dueDate: t.date, purchaseDate: t.date,
-                    currentInstallment: isInst ? t.installments!.current : 1,
-                    totalInstallments: isInst ? t.installments!.total : 1,
-                    isFixed: false, billingMonth: currentMonthName, cycle: targetType,
-                    category: t.category || 'Outros', paymentMethod: t.description.includes('Pix') ? 'Pix' : 'Cartão',
-                    needsReview: true, isPaid: false
-                });
+                    newCycles[idx].debts.push({
+                        id: uuidv4(), name: finalName,
+                        totalAmount: Math.abs(amount) * (isInst ? t.installments!.total : 1),
+                        installmentAmount: Math.abs(amount), dueDate: t.date, purchaseDate: t.date,
+                        currentInstallment: isInst ? t.installments!.current : 1,
+                        totalInstallments: isInst ? t.installments!.total : 1,
+                        isFixed: false, billingMonth: currentMonthName, cycle: targetType,
+                        category: t.category || 'Outros', paymentMethod: t.description.includes('Pix') ? 'Pix' : 'Cartão',
+                        needsReview: true, isPaid: false
+                    });
+                }
             }
         });
         return { ...prev, cycles: newCycles, categoryMappings: prev.categoryMappings };
