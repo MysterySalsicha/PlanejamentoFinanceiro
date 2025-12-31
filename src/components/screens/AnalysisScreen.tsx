@@ -148,6 +148,7 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
                 description,
                 description, // sender (same as description for simple list)
                 amount,
+                'expense', // Default type
                 state.categoryMappings // categoryMappings
             ));
         });
