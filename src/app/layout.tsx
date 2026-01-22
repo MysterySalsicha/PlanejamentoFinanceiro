@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   title: "Controle Financeiro",
   description: "Gerenciamento de finanças pessoais",
   manifest: "/manifest.json",
+  icons: {
+    icon: '/favicon.svg',
+  }
 };
 
 export default function RootLayout({

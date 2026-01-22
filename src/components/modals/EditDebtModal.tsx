@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { X } from 'lucide-react';
+import { toast } from 'sonner';
 import { Transaction, Debt } from '@/types';
 import { MONTHS_FULL } from '@/lib/constants';
 import { parseMoney, formatMoney } from '@/lib/utils';
@@ -15,9 +16,11 @@ interface EditDebtModalProps {
     item: Transaction | Debt | null;
     type: 'debt' | 'income';
     onSave: (updatedItem: any) => void;
+    onDeleteDebt: (id: string) => void;
+    onDeleteTransaction: (id: string) => void;
 }
 
-export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, item, type, onSave }) => {
+export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, item, type, onSave, onDeleteDebt, onDeleteTransaction }) => {
     const { state } = useFinancials();
 
     // Local State
@@ -27,7 +30,7 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
     const [purchaseDate, setPurchaseDate] = useState('');
     const [dueDate, setDueDate] = useState('');
     const [paymentDate, setPaymentDate] = useState('');
-    const [cycle, setCycle] = useState('day_05');
+    const [cycle, setCycle] = useState('salary');
     const [method, setMethod] = useState('');
 
     // Flags
@@ -41,6 +44,26 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
     const [billingMonth, setBillingMonth] = useState('');
     const [currentInst, setCurrentInst] = useState('1');
 
+    // Confirmation dialog state
+    const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+
+    const formatDateForInput = (dateString: string | undefined | null): string => {
+        if (!dateString) return '';
+        if (dateString.includes('T')) {
+            return dateString.split('T')[0];
+        }
+        if (dateString.includes('/')) {
+            const parts = dateString.split('/');
+            if (parts.length === 3) {
+                return `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+            return dateString;
+        }
+        return '';
+    };
+
     useEffect(() => {
         if (isOpen && item) {
             setIsPaid(!!item.isPaid);
@@ -49,10 +72,10 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                 setName(d.name);
                 setAmount(formatMoney(d.totalAmount));
                 setCategory(d.category || 'Outros');
-                setPurchaseDate(d.purchaseDate || '');
-                setDueDate(d.dueDate || '');
+                setPurchaseDate(formatDateForInput(d.purchaseDate));
+                setDueDate(formatDateForInput(d.dueDate));
                 if (d.isPaid) {
-                    setPaymentDate(d.paymentDate || '');
+                    setPaymentDate(formatDateForInput(d.paymentDate));
                 }
                 setCycle(d.cycle);
                 setMethod(d.paymentMethod || 'Cartão');
@@ -76,7 +99,7 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                 setAmount(formatMoney(t.amount));
                 setIsFixed(!!t.isFixed);
                 setCategory(t.category);
-                setPurchaseDate(t.date);
+                setPurchaseDate(formatDateForInput(t.date));
                 setCycle(t.cycle);
                 setIsInstallment(false);
             }
@@ -105,6 +128,18 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
         const finalAmount = parseMoney(amount);
         if (!name || finalAmount <= 0) return;
 
+        const toISOStringOrKeep = (dateStr: string) => {
+            if (!dateStr || dateStr.includes('T')) return dateStr;
+            if (dateStr.includes('-')) {
+                const parts = dateStr.split('-');
+                if (parts.length === 3) {
+                    const localDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    return localDate.toISOString();
+                }
+            }
+            return dateStr;
+        };
+
         const updated: any = { ...item };
         updated.isPaid = isPaid;
 
@@ -112,10 +147,10 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
             updated.name = name;
             updated.totalAmount = finalAmount;
             updated.category = category;
-            updated.purchaseDate = purchaseDate;
-            updated.dueDate = dueDate;
+            updated.purchaseDate = toISOStringOrKeep(purchaseDate);
+            updated.dueDate = toISOStringOrKeep(dueDate);
             if (isPaid) {
-                updated.paymentDate = paymentDate;
+                updated.paymentDate = toISOStringOrKeep(paymentDate);
             }
             updated.cycle = cycle;
             updated.paymentMethod = method;
@@ -140,7 +175,7 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
             updated.amount = finalAmount;
             updated.isFixed = isFixed;
             updated.category = category;
-            updated.date = purchaseDate;
+            updated.date = toISOStringOrKeep(purchaseDate);
             updated.cycle = cycle;
 
             if (updated.description && updated.category && updated.amount > 0) {
@@ -150,6 +185,22 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
 
         onSave(updated);
         onClose();
+    };
+
+    const confirmDelete = () => {
+        if (!item) return;
+        if (type === 'debt') {
+            onDeleteDebt(item.id);
+        } else {
+            onDeleteTransaction(item.id);
+        }
+        toast.success("Item excluído!");
+        setShowConfirmDelete(false); // Hide the confirmation dialog
+        onClose(); // Close the main edit modal
+    };
+
+    const handleDelete = () => {
+        setShowConfirmDelete(true); // Open custom confirmation dialog
     };
 
     if (!isOpen) return null;
@@ -240,8 +291,8 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                                 <div>
                                     <Label className="text-[10px] font-bold text-slate-500 mb-1 block">CICLO</Label>
                                     <select className="w-full h-10 border rounded bg-white px-2 text-sm" value={cycle} onChange={e => setCycle(e.target.value as any)}>
-                                        <option value="day_05">Dia {state.settings.salaryDay}</option>
-                                        <option value="day_20">Dia {state.settings.advanceDay}</option>
+                                        <option value="salary">Dia {state.settings.salaryDay}</option>
+                                        <option value="advance">Dia {state.settings.advanceDay}</option>
                                     </select>
                                 </div>
                             )}
@@ -265,10 +316,27 @@ export const EditDebtModal: React.FC<EditDebtModalProps> = ({ isOpen, onClose, i
                             </div>
                         </div>
                     )}
-
-                    <Button className="w-full bg-blue-600 hover:bg-blue-700 mt-2" onClick={handleSave}>Salvar Alterações</Button>
+                    <div className="flex justify-between items-center pt-4 border-t">
+                        {item && <Button variant="destructive" onClick={handleDelete}>Excluir</Button>}
+                        <Button className="flex-1 ml-2 bg-blue-600 hover:bg-blue-700" onClick={handleSave}>Salvar Alterações</Button>
+                    </div>
                 </CardContent>
             </Card>
+
+            {showConfirmDelete && (
+                <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/70 p-4">
+                    <Card onClick={(e) => e.stopPropagation()} className="w-full max-w-sm bg-white shadow-2xl animate-in zoom-in-95">
+                        <CardHeader><CardTitle>Confirmar Exclusão</CardTitle></CardHeader>
+                        <CardContent className="flex flex-col gap-4">
+                            <p className="text-sm text-slate-600">Tem certeza que deseja excluir este item?</p>
+                            <div className="flex justify-end gap-2">
+                                <Button variant="ghost" onClick={() => setShowConfirmDelete(false)}>Não</Button>
+                                <Button variant="destructive" onClick={confirmDelete}>Sim, Excluir</Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
         </div>
     );
 };

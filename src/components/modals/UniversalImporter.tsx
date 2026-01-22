@@ -47,7 +47,8 @@ const SimpleParser = (text: string): ImportedTransaction[] => {
             sender: description,
             amount: Math.abs(amount),
             category: 'Outros',
-            cycle: 'day_05',
+            cycle: 'salary',
+            type: amount > 0 ? 'income' : 'expense',
         });
     }
     return results;

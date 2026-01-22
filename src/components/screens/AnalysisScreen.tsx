@@ -9,7 +9,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatCurrencyBRL, parseMoney } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Upload, Loader2, Trash2, Search, X, Info, Eraser, Bug, CheckCircle, Copy, MessageSquarePlus, AlertTriangle } from 'lucide-react';
-import { createTransaction as importersCreateTransaction } from '@/lib/importers';
+import {
+    detectBank,
+    parseBradesco,
+    parseGenericScanner,
+    parseMercadoPago,
+    parseNubank,
+    parsePicPay
+} from '@/lib/importers';
 
 const MONTH_MAP: Record<string, string> = {'JAN':'01','FEV':'02','MAR':'03','ABR':'04','MAI':'05','JUN':'06','JUL':'07','AGO':'08','SET':'09','OUT':'10','NOV':'11','DEZ':'12','JANEIRO':'01','FEVEREIRO':'02','MARÇO':'03','ABRIL':'04','MAIO':'05','JUNHO':'06','JULHO':'07','AGOSTO':'08','SETEMBRO':'09','OUTUBRO':'10','NOVEMBRO':'11','DEZEMBRO':'12'};
 
@@ -68,41 +75,6 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
     }
   }, [raw, parserMode]);
 
-  const detectBank = (text: string): BankType => {
-      const lower = text.toLowerCase();
-      if (lower.includes('nu pagamentos') || lower.includes('nubank')) return 'Nubank';
-      if (lower.includes('bradesco')) return 'Bradesco';
-      if (lower.includes('mercado pago') || lower.includes('mercadopago')) return 'Mercado Pago';
-      if (lower.includes('picpay')) return 'PicPay';
-      return 'Genérico';
-  };
-
-    const parseBradesco = (text: string): ImportedTransaction[] => {
-        addLog(">>> Iniciando Parser Bradesco");
-        const results: ImportedTransaction[] = [];
-        return results;
-    };
-    const parseGenericScanner = (text: string): ImportedTransaction[] => {
-        addLog(`Iniciando Scanner Genérico`);
-        const results: ImportedTransaction[] = [];
-        return results;
-    };
-    const parseMercadoPago = (text: string): ImportedTransaction[] => {
-        addLog(">>> Iniciando Parser MercadoPago");
-        const results: ImportedTransaction[] = [];
-        return results;
-    };
-    const parseNubank = (text: string): ImportedTransaction[] => {
-        addLog(">>> Iniciando Parser Nubank");
-        const results: ImportedTransaction[] = [];
-        return results;
-    };
-    const parsePicPay = (text: string): ImportedTransaction[] => {
-        addLog(">>> Iniciando Parser PicPay");
-        const results: ImportedTransaction[] = [];
-        return results;
-    };
-
     const parseSimpleList = (text: string): ImportedTransaction[] => {
         addLog(">>> Iniciando Parser de Lista Simples");
         const results: ImportedTransaction[] = [];
@@ -143,13 +115,18 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
                 } catch(e) { addLog(`Não foi possível extrair valor de: ${valueString}`); } 
             }
             description = description.replace(/reais/i, '').trim();
-            results.push(importersCreateTransaction(
-                date || '',
+            results.push({
+                id: Math.random().toString(36).substr(2, 9),
+                date: date || '',
                 description,
-                description, // sender (same as description for simple list)
+                sender: description, // sender (same as description for simple list)
                 amount,
-                state.categoryMappings // categoryMappings
-            ));
+                type: 'expense', // Always expense for simple list
+                category: 'Outros',
+                cycle: 'salary', // Default cycle for simple list
+                preferredCycle: 'salary', // Preferred cycle for simple list
+                needsReview: true, // Needs review for simple list
+            } as ImportedTransaction); // Explicit cast for safety
         });
         return results;
     };
@@ -171,11 +148,11 @@ export const AnalysisScreen = ({ onFinish }: { onFinish: () => void }) => {
       addLog(`Processando extrato... Banco: ${bank}`);
       let found: ImportedTransaction[] = [];
       try {
-          if (bank === 'Bradesco') found = parseBradesco(raw);
-          else if (bank === 'PicPay') found = parsePicPay(raw);
-          else if (bank === 'Mercado Pago') found = parseMercadoPago(raw);
-          else if (bank === 'Nubank') found = parseNubank(raw);
-          if (found.length === 0) found = parseGenericScanner(raw);
+          if (bank === 'Bradesco') found = parseBradesco(raw, state.categoryMappings);
+          else if (bank === 'PicPay') found = parsePicPay(raw, state.categoryMappings);
+          else if (bank === 'Mercado Pago') found = parseMercadoPago(raw, state.categoryMappings);
+          else if (bank === 'Nubank') found = parseNubank(raw, state.categoryMappings);
+          if (found.length === 0) found = parseGenericScanner(raw, state.categoryMappings);
       } catch (e: any) { toast.error("Erro ao processar extrato."); } 
 
       const completeItems = found.filter(t => t.date);

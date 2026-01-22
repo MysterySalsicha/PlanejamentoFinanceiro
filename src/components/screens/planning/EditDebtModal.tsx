@@ -69,9 +69,9 @@ export const EditDebtModal = ({ debt, categories, onSave, onClose }: EditDebtMod
                     </div>
                      <div>
                         <Label>Ciclo de Pagamento</Label>
-                        <select name="cycle" value={editedDebt.cycle || 'day_05'} onChange={handleChange} className="w-full p-2 border rounded-md">
-                            <option value="day_05">Ciclo Salário</option>
-                            <option value="day_20">Ciclo Vale</option>
+                        <select name="cycle" value={editedDebt.cycle || 'salary'} onChange={handleChange} className="w-full p-2 border rounded-md">
+                            <option value="salary">Ciclo Salário</option>
+                            <option value="advance">Ciclo Vale</option>
                         </select>
                     </div>
                     <div className="flex justify-end gap-2 pt-4">

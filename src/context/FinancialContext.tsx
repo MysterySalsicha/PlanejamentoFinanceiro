@@ -83,8 +83,8 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
             ...prev,
             viewDate: currentMonth,
             cycles: [
-                { id: `${currentMonth}_day_05`, month: currentMonth, type: 'day_05', transactions: [], debts: [] },
-                { id: `${currentMonth}_day_20`, month: currentMonth, type: 'day_20', transactions: [], debts: [] }
+                { id: `${currentMonth}_salary`, month: currentMonth, type: 'salary', transactions: [], debts: [] },
+                { id: `${currentMonth}_advance`, month: currentMonth, type: 'advance', transactions: [], debts: [] }
             ]
         }));
     }
@@ -127,8 +127,8 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
 
       return [
           ...cycles,
-          { id: `${monthStr}_day_05`, month: monthStr, type: 'day_05', transactions: [], debts: [] },
-          { id: `${monthStr}_day_20`, month: monthStr, type: 'day_20', transactions: [], debts: [] }
+          { id: `${monthStr}_salary`, month: monthStr, type: 'salary', transactions: [], debts: [] },
+          { id: `${monthStr}_advance`, month: monthStr, type: 'advance', transactions: [], debts: [] }
       ];
   };
 
@@ -199,11 +199,11 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
       const debtDate = new Date(d.purchaseDate || d.dueDate || new Date());
       const debtDay = debtDate.getDate();
 
-      let targetCycle: 'day_05' | 'day_20' = 'day_05';
+      let targetCycle: 'salary' | 'advance' = 'salary';
       if(hasAdvance) {
           const distToSalary = Math.abs(debtDay - salaryDay);
           const distToAdvance = Math.abs(debtDay - advanceDay);
-          if (distToAdvance < distToSalary) targetCycle = 'day_20';
+          if (distToAdvance < distToSalary) targetCycle = 'advance';
       }
 
       const debtWithCycle = { ...d, cycle: targetCycle };
@@ -280,7 +280,7 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
   const payPartialDebt = (debtId: string, amountToPay: number) => {
     setState(prev => {
       let debtToSplit: Debt | null = null;
-      let originalCycleType: 'day_05' | 'day_20' | null = null;
+      let originalCycleType: 'salary' | 'advance' | null = null;
       let originalCycleMonth: string | null = null;
 
       for (const cycle of prev.cycles) {
@@ -348,18 +348,19 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
           if (!item || !currentCycle) return prev;
 
           let targetMonth = currentCycle.month;
-          let targetType: 'day_05' | 'day_20';
+          let targetType: 'salary' | 'advance';
           let updatedItem = { ...item };
 
-          if (currentCycle.type === 'day_20') {
+          if (currentCycle.type === 'advance') {
               const [y, m] = currentCycle.month.split('-').map(Number);
               const nextDate = new Date(y, m, 1);
               targetMonth = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
-              targetType = 'day_05';
-              updatedItem.cycle = 'day_05';
-          } else {
-              targetType = 'day_20';
-              updatedItem.cycle = 'day_20';
+              targetType = 'salary';
+              updatedItem.cycle = 'salary';
+          } // Closing brace added
+          else {
+              targetType = 'advance';
+              updatedItem.cycle = 'advance';
           }
 
           const cyclesWithTarget = ensureCyclesForMonth(prev.cycles, targetMonth);
@@ -392,11 +393,11 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
             newCycles = ensureCyclesForMonth(newCycles, monthStr);
 
             const day = dateObj.getDate();
-            let targetType: 'day_05' | 'day_20' = 'day_05';
+            let targetType: 'salary' | 'advance' = 'salary';
             if (hasAdvance) {
                 const distSalary = Math.abs(day - salaryDay);
                 const distAdvance = Math.abs(day - advanceDay);
-                if (distAdvance < distSalary) targetType = 'day_20';
+                if (distAdvance < distSalary) targetType = 'advance';
             }
             
             const idx = newCycles.findIndex(c => c.month === monthStr && c.type === targetType);
@@ -443,11 +444,11 @@ export const FinancialProvider = ({ children }: { children: ReactNode }) => {
       const found = state.cycles.filter(c => c.month === monthStr);
       if (found.length === 0) {
           return [
-             { id: `${monthStr}_day_05`, month: monthStr, type: 'day_05', transactions: [], debts: [] } as FinancialCycle,
-             { id: `${monthStr}_day_20`, month: monthStr, type: 'day_20', transactions: [], debts: [] } as FinancialCycle
+             { id: `${monthStr}_salary`, month: monthStr, type: 'salary', transactions: [], debts: [] } as FinancialCycle,
+             { id: `${monthStr}_advance`, month: monthStr, type: 'advance', transactions: [], debts: [] } as FinancialCycle
           ];
       }
-      return found.sort((a, b) => a.type === 'day_05' ? -1 : 1);
+      return found.sort((a, b) => a.type === 'salary' ? -1 : 1);
   };
 
   const toggleDebtStatus = (id: string) => {

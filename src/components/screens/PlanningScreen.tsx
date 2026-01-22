@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatCurrencyBRL, parseMoney, formatMoney } from '@/lib/utils';
-import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimize2, ChevronDown, ChevronUp, HelpCircle, ChevronLeft, ChevronRight, TriangleAlert, Flame, Check, AlertTriangle, Upload, Download, RotateCcw, Eye, EyeOff, Square } from 'lucide-react';
+import { Trash2, Settings, X, Pencil, Plus, Minus, RefreshCw, Maximize2, Minimize2, ChevronDown, ChevronUp, HelpCircle, ChevronLeft, ChevronRight, TriangleAlert, Flame, Check, AlertTriangle, Upload, Download, RotateCcw, Eye, EyeOff, Square, Loader2 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -166,8 +166,8 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 
                             {!minimizeIncomes && (
                                 <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
-                                    {incomes.map((inc: any) => (
-                                        <div key={inc.id} className={`flex justify-between items-center bg-green-50/50 p-2 rounded border border-green-100/50 text-xs ${inc.isPaid ? 'opacity-60' : ''}`}>
+                                    {incomes.map((inc: any, idx: number) => (
+                                        <div key={`${inc.id}-${idx}`} className={`flex justify-between items-center bg-green-50/50 p-2 rounded border border-green-100/50 text-xs ${inc.isPaid ? 'opacity-60' : ''}`}>
                                             <div className="flex items-center gap-2">
                                                 {!isProjection && (
                                                      <div onClick={() => onToggleInc(inc.id)} className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-colors ${inc.isPaid ? 'bg-green-600 border-green-600' : 'bg-white border-green-300'}`}>
@@ -177,15 +177,15 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                                 {inc.needsReview && <TriangleAlert className="h-3 w-3 text-yellow-500" />}
                                                 <span className={`font-medium text-green-900 ${inc.isPaid ? 'line-through decoration-green-900/50' : ''}`}>{inc.description}</span>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-bold text-green-700">{formatCurrencyBRL(inc.amount)}</span>
-                                                {!isProjection && (
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-green-700">{formatCurrencyBRL(inc.amount)}</span>
                                                     <div className="flex gap-1">
                                                         <Pencil className="h-3 w-3 text-blue-400 cursor-pointer" onClick={() => onEditInc(inc)} />
-                                                        <Trash2 className="h-3 w-3 text-red-400 cursor-pointer" onClick={() => onDeleteInc(inc.id)} />
+                                                        {!isProjection && (
+                                                            <Trash2 className="h-3 w-3 text-red-400 cursor-pointer" onClick={() => onDeleteInc(inc.id)} />
+                                                        )}
                                                     </div>
-                                                )}
-                                            </div>
+                                                </div>
                                         </div>
                                     ))}
                                 </div>
@@ -204,7 +204,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
 
                         {!minimizeExpenses && (
                             <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
-                                {filteredItems.map((it: any) => {
+                                {filteredItems.map((it: any, idx: number) => {
                                     const overdue = isOverdue(it.dueDate, it.isPaid);
                                     const itemClass = it.isPaid
                                         ? 'bg-green-50 border-green-200 opacity-60'
@@ -213,7 +213,7 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                             : 'bg-white border-slate-100';
 
                                     return (
-                                    <div key={it.id} className={`${itemClass} p-2.5 rounded-lg shadow-sm border text-xs hover:border-slate-300 transition-all flex justify-between items-start`}>
+                                    <div key={`${it.id}-${idx}`} className={`${itemClass} p-2.5 rounded-lg shadow-sm border text-xs hover:border-slate-300 transition-all flex justify-between items-start`}>
                                         <div className="flex items-start gap-3 flex-1">
                                             {!isProjection && (
                                                 <div className="mt-0.5">
@@ -238,13 +238,15 @@ const CycleSection = ({ title, stats, items, incomes, colorClass, hasAdvance, on
                                         </div>
                                         <div className="text-right pl-2">
                                             <div className={`font-bold ${it.isPaid ? 'text-green-700 line-through decoration-green-700/50' : 'text-red-600'}`}>-{formatCurrencyBRL(it.displayVal || it.installmentAmount)}</div>
-                                            {!isProjection && (
-                                                <div className="flex gap-2 mt-1 justify-end items-center">
-                                                    <Pencil className="h-3.5 w-3.5 text-slate-400 hover:text-blue-500 cursor-pointer" onClick={() => onEditDebt(it)} />
-                                                    <Trash2 className="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer" onClick={() => onDeleteDebt(it.id)} />
-                                                    {hasAdvance && <RefreshCw className="h-3.5 w-3.5 text-slate-400 hover:text-orange-500 cursor-pointer" onClick={() => onMove(it.id)} />}
-                                                </div>
-                                            )}
+                                            <div className="flex gap-2 mt-1 justify-end items-center">
+                                                <Pencil className="h-3.5 w-3.5 text-slate-400 hover:text-blue-500 cursor-pointer" onClick={() => onEditDebt(it)} />
+                                                {!isProjection && (
+                                                    <>
+                                                        <Trash2 className="h-3.5 w-3.5 text-slate-400 hover:text-red-500 cursor-pointer" onClick={() => onDeleteDebt(it.id)} />
+                                                        {hasAdvance && <RefreshCw className="h-3.5 w-3.5 text-slate-400 hover:text-orange-500 cursor-pointer" onClick={() => onMove(it.id)} />}
+                                                    </>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 )})}
@@ -277,13 +279,13 @@ export const PlanningScreen = () => {
     // Forms Inputs
     const [incomeName, setIncomeName] = useState('');
     const [incomeAmount, setIncomeAmount] = useState('');
-    const [incomeCycle, setIncomeCycle] = useState<'day_05' | 'day_20'>('day_05');
+    const [incomeCycle, setIncomeCycle] = useState<'salary' | 'advance'>('salary');
     const [isIncomeFixed, setIsIncomeFixed] = useState(false);
 
     const [debtName, setDebtName] = useState('');
     const [debtAmount, setDebtAmount] = useState('');
     const [debtDate, setDebtDate] = useState(new Date().toISOString().split('T')[0]);
-    const [debtCycle, setDebtCycle] = useState<'day_05' | 'day_20'>('day_05');
+    const [debtCycle, setDebtCycle] = useState<'salary' | 'advance'>('salary');
     const [debtCat, setDebtCat] = useState('');
     const [debtMethod, setDebtMethod] = useState('');
     const [isInstallment, setIsInstallment] = useState(false);
@@ -300,8 +302,14 @@ export const PlanningScreen = () => {
 
     const [quickDesc, setQuickDesc] = useState('');
     const [quickVal, setQuickVal] = useState('');
-    const [quickCycle, setQuickCycle] = useState<'day_05' | 'day_20'>('day_05');
+    const [quickCycle, setQuickCycle] = useState<'salary' | 'advance'>('salary');
     const [quickType, setQuickType] = useState<'expense' | 'income'>('expense');
+
+    const payslipInputRef = React.useRef<HTMLInputElement>(null);
+    const [payslipFile, setPayslipFile] = useState<File | null>(null);
+    const [isPayslipProcessing, setIsPayslipProcessing] = useState(false);
+    const [showPayslipModal, setShowPayslipModal] = useState(false);
+
 
     // Navigation handlers
     const changeMonth = (direction: 'prev' | 'next') => {
@@ -354,6 +362,12 @@ export const PlanningScreen = () => {
             }
         }
     }, [showSettings, state.categories]);
+
+    useEffect(() => {
+        setConfSal(state.settings.salaryDay);
+        setConfAdv(state.settings.advanceDay);
+        setHasAdv(state.settings.hasAdvance);
+    }, [state.settings]);
 
     // Efeito para fechar modais com botão voltar do navegador/celular
     useEffect(() => {
@@ -414,52 +428,15 @@ export const PlanningScreen = () => {
         return { inc, exp, bal: inc - exp, chartData };
     };
 
-    const currentMonthCycles = useMemo(() => {
-        return getCyclesForMonth(state.viewDate);
-    }, [state.viewDate, state.cycles, getCyclesForMonth]);
-
-    const currentMonthStats = useMemo(() => {
-        const c1Data = currentMonthCycles[0] || { debts: [], transactions: [] };
-        const c2Data = currentMonthCycles[1] || { debts: [], transactions: [] };
-
-        const c1 = getCycleStats(c1Data.debts, c1Data.transactions);
-        const c2 = getCycleStats(c2Data.debts, c2Data.transactions);
-        return { c1, c2 };
-    }, [currentMonthCycles]);
-
-    const totalMonthStats = useMemo(() => {
-        const totalIncomes = (currentMonthStats.c1.inc || 0) + (currentMonthStats.c2.inc || 0);
-        const totalExpenses = (currentMonthStats.c1.exp || 0) + (currentMonthStats.c2.exp || 0);
-        const balance = totalIncomes - totalExpenses;
-        return { totalIncomes, totalExpenses, balance };
-    }, [currentMonthStats]);
-
-    const monthItems = useMemo(() => {
-        const c1Data = currentMonthCycles[0] || { debts: [], transactions: [] };
-        const c2Data = currentMonthCycles[1] || { debts: [], transactions: [] };
-
-        const incomes = [...c1Data.transactions, ...c2Data.transactions];
-        const debts = [...c1Data.debts, ...c2Data.debts].filter(d => d.currentInstallment >= 1);
-        return { incomes, debts };
-    }, [currentMonthCycles]);
-
-    const projectionData = useMemo(() => {
-        if (!state.cycles) return [];
-        const arr = [];
-        const [viewYear, viewMonth] = state.viewDate.split('-').map(Number);
-        const viewDate = new Date(viewYear, viewMonth - 1, 1);
+    const getProjectedMonthData = useMemo(() => {
+        if (!state.cycles) return () => ({ cycle1: { debts: [], transactions: [], inc: 0, exp: 0, bal: 0, chartData: [] }, cycle2: { debts: [], transactions: [], inc: 0, exp: 0, bal: 0, chartData: [] } });
 
         const allDebts = state.cycles.flatMap(c => c.debts);
         const allIncomes = state.cycles.flatMap(c => c.transactions);
-        const fixedIncomes = allIncomes.filter(t => t.isFixed);
 
-        for (let i = 0; i < 6; i++) {
-            const fDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + i, 1);
-            const mLabel = `${MONTHS_FULL[fDate.getMonth()]} ${fDate.getFullYear()}`;
+        return (fDate: Date) => {
             const cycle1Debts: any[] = [];
             const cycle2Debts: any[] = [];
-            
-            const monthStr = `${fDate.getFullYear()}-${String(fDate.getMonth() + 1).padStart(2, '0')}`;
 
             allDebts.forEach(d => {
                 let active = false;
@@ -469,8 +446,23 @@ export const PlanningScreen = () => {
                 if (d.isFixed) {
                     active = true;
                     curr = 0;
-                } else if(d.purchaseDate){
-                    const debtStartDate = new Date(d.purchaseDate);
+                } else if (d.purchaseDate) {
+                    let debtStartDate: Date;
+                    if (d.purchaseDate.includes('/')) {
+                        const parts = d.purchaseDate.split('/');
+                        if (parts.length !== 3) return;
+                        debtStartDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                    } else if (d.purchaseDate.includes('-')) {
+                        const datePart = d.purchaseDate.split('T')[0];
+                        const parts = datePart.split('-');
+                        if (parts.length !== 3) return;
+                        debtStartDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    } else {
+                        debtStartDate = new Date(d.purchaseDate);
+                    }
+
+                    if (isNaN(debtStartDate.getTime())) return;
+
                     const monthDiff = (fDate.getFullYear() - debtStartDate.getFullYear()) * 12 + (fDate.getMonth() - debtStartDate.getMonth());
                     const projectedInstallment = monthDiff + 1;
 
@@ -482,25 +474,129 @@ export const PlanningScreen = () => {
 
                 if (active) {
                     const item = { ...d, currentDisplay: curr, displayVal: val };
-                    if (d.cycle === 'day_05') cycle1Debts.push(item);
-                    else cycle2Debts.push(item);
-                }
+                                if (d.cycle === 'salary') cycle1Debts.push(item);
+                                else if (d.cycle === 'advance') cycle2Debts.push(item);                }
             });
 
-            const c1Incomes = fixedIncomes.filter(t => t.cycle === 'day_05');
-            const c2Incomes = fixedIncomes.filter(t => t.cycle === 'day_20');
-            
+            const monthIncomes = allIncomes.filter(t => {
+                if (t.isFixed) return true;
+                if (typeof t.date !== 'string' || !t.date) return false;
+                
+                let tDate: Date;
+                if (t.date.includes('/')) {
+                    const parts = t.date.split('/');
+                    if (parts.length !== 3) return false;
+                    tDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                } else if (t.date.includes('-')) {
+                    const datePart = t.date.split('T')[0];
+                    const parts = datePart.split('-');
+                    if (parts.length !== 3) return false;
+                    tDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                } else {
+                    tDate = new Date(t.date);
+                }
+
+                if (isNaN(tDate.getTime())) return false;
+                
+                return tDate.getFullYear() === fDate.getFullYear() && tDate.getMonth() === fDate.getMonth();
+            });
+
+            const c1Incomes = monthIncomes.filter(t => t.cycle === 'salary');
+            const c2Incomes = monthIncomes.filter(t => t.cycle === 'advance');
+
             const c1 = getCycleStats(cycle1Debts, c1Incomes);
             const c2 = getCycleStats(cycle2Debts, c2Incomes);
 
-            arr.push({ label: mLabel, date: fDate, cycle1: { items: cycle1Debts, ...c1, incomes: c1Incomes }, cycle2: { items: cycle2Debts, ...c2, incomes: c2Incomes }, totalBal: c1.bal + c2.bal });
+            return {
+                cycle1: { debts: cycle1Debts, transactions: c1Incomes, ...c1 },
+                cycle2: { debts: cycle2Debts, transactions: c2Incomes, ...c2 }
+            };
+        };
+    }, [state.cycles]);
+
+    const currentMonthData = useMemo(() => {
+        const [year, month] = state.viewDate.split('-').map(Number);
+        const currentDate = new Date(year, month - 1, 1);
+        return getProjectedMonthData(currentDate);
+    }, [state.viewDate, getProjectedMonthData]);
+
+    const currentMonthStats = useMemo(() => ({
+        c1: currentMonthData.cycle1,
+        c2: currentMonthData.cycle2,
+    }), [currentMonthData]);
+    
+    const currentMonthCycles = useMemo(() => ([
+        currentMonthData.cycle1,
+        currentMonthData.cycle2
+    ]),[currentMonthData]);
+
+    const totalMonthStats = useMemo(() => {
+        const totalIncomes = (currentMonthStats.c1.inc || 0) + (currentMonthStats.c2.inc || 0);
+        const totalExpenses = (currentMonthStats.c1.exp || 0) + (currentMonthStats.c2.exp || 0);
+        const balance = totalIncomes - totalExpenses;
+        return { totalIncomes, totalExpenses, balance };
+    }, [currentMonthStats]);
+
+    const monthItems = useMemo(() => {
+        const incomes = [...currentMonthData.cycle1.transactions, ...currentMonthData.cycle2.transactions];
+        const debts = [...currentMonthData.cycle1.debts, ...currentMonthData.cycle2.debts];
+        return { incomes, debts };
+    }, [currentMonthData]);
+
+    const projectionData = useMemo(() => {
+        const arr = [];
+        const [viewYear, viewMonth] = state.viewDate.split('-').map(Number);
+        const viewDate = new Date(viewYear, viewMonth - 1, 1);
+
+        for (let i = 0; i < 6; i++) {
+            const fDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + i, 1);
+            const mLabel = `${MONTHS_FULL[fDate.getMonth()]} ${fDate.getFullYear()}`;
+            
+            const { cycle1, cycle2 } = getProjectedMonthData(fDate);
+
+            arr.push({ 
+                label: mLabel, 
+                date: fDate, 
+                cycle1: { items: cycle1.debts, ...cycle1, incomes: cycle1.transactions },
+                cycle2: { items: cycle2.debts, ...cycle2, incomes: cycle2.transactions },
+                totalBal: cycle1.bal + cycle2.bal 
+            });
         }
         return arr;
-    }, [state.cycles, state.viewDate]);
+    }, [state.viewDate, getProjectedMonthData]);
 
 
     // Actions
     const saveConfig = () => {
+        // Logic to move items when hasAdvance is toggled
+        if (state.settings.hasAdvance && !hasAdv) { // Disabling advance
+            const allItems = state.cycles.flatMap(c => [...c.transactions, ...c.debts]);
+            allItems.forEach(item => {
+                if (item.cycle === 'advance') {
+                    const updatedItem = { ...item, cycle: 'salary' as 'salary' | 'advance' };
+                    if ('description' in item) { // It's a Transaction
+                        updateTransaction(item.id, updatedItem);
+                    } else { // It's a Debt
+                        updateDebt(item.id, updatedItem);
+                    }
+                }
+            });
+            toast.info("Itens do ciclo de adiantamento foram movidos para o ciclo de salário.");
+        } else if (!state.settings.hasAdvance && hasAdv) { // Re-enabling advance
+            const allItems = state.cycles.flatMap(c => [...c.transactions, ...c.debts]);
+            allItems.forEach(item => {
+                if (item.preferredCycle === 'advance') {
+                    const updatedItem = { ...item, cycle: 'advance' as 'salary' | 'advance' };
+                     if ('description' in item) { // It's a Transaction
+                        updateTransaction(item.id, updatedItem);
+                    } else { // It's a Debt
+                        updateDebt(item.id, updatedItem);
+                    }
+                }
+            });
+            toast.info("Itens foram movidos de volta para o ciclo de adiantamento.");
+        }
+
         updateSettings({ salaryDay: Number(confSal), hasAdvance: hasAdv, advanceDay: Number(confAdv) });
         setShowSettings(false);
         toast.success("Configurações salvas!");
@@ -512,8 +608,9 @@ export const PlanningScreen = () => {
         
         const [year, month] = state.viewDate.split('-').map(Number);
         let targetDate = new Date(year, month - 1, 10);
+        const cycle = state.settings.hasAdvance ? incomeCycle : 'salary';
 
-        addTransaction({ description: incomeName, amount: val, type: 'income', category: 'Salário', date: targetDate.toISOString(), isFixed: isIncomeFixed, cycle: state.settings.hasAdvance ? incomeCycle : 'day_05' });
+        addTransaction({ description: incomeName, amount: val, type: 'income', category: 'Salário', date: targetDate.toISOString(), isFixed: isIncomeFixed, cycle, preferredCycle: cycle });
         setIncomeName(''); setIncomeAmount(''); toast.success("Renda adicionada");
     }
 
@@ -530,12 +627,13 @@ export const PlanningScreen = () => {
             finalInst = iVal;
             finalTotal = count;
         }
+        const cycle = state.settings.hasAdvance ? debtCycle : 'salary';
 
         addDebt({
             name: fName, totalAmount: total, installmentAmount: finalInst,
             dueDate: isFixed ? 'Mensal' : (isInstallment ? `Fat. ${billingMonth}` : debtDate),
             purchaseDate: debtDate, currentInstallment: 1, totalInstallments: finalTotal,
-            isFixed, billingMonth, category: debtCat, cycle: state.settings.hasAdvance ? debtCycle : 'day_05',
+            isFixed, billingMonth, category: debtCat, cycle, preferredCycle: cycle,
             paymentMethod: debtMethod || 'Outros'
         });
         setDebtName(''); setDebtAmount(''); setInstVal(''); toast.success("Dívida lançada");
@@ -568,17 +666,17 @@ export const PlanningScreen = () => {
         if (quickType === 'expense') {
             addDebt({
                 name: quickDesc, totalAmount: val, installmentAmount: val,
-                dueDate: 'Previsto', purchaseDate: dateObj.toISOString(),
+                dueDate: dateObj.toISOString(), purchaseDate: dateObj.toISOString(),
                 currentInstallment: 1,
                 totalInstallments: 1, isFixed: false,
-                billingMonth: MONTHS_FULL[dateObj.getMonth()], category: 'Outros', cycle: quickCycle,
+                billingMonth: MONTHS_FULL[dateObj.getMonth()], category: 'Outros', cycle: quickCycle, preferredCycle: quickCycle,
                 needsReview: true
             });
             toast.success("Saída prevista adicionada");
         } else {
              addTransaction({ 
                 description: quickDesc, amount: val, type: 'income', category: 'Outros', 
-                date: dateObj.toISOString(), isFixed: false, cycle: quickCycle,
+                date: dateObj.toISOString(), isFixed: false, cycle: quickCycle, preferredCycle: quickCycle,
                 needsReview: true
             });
             toast.success("Entrada prevista adicionada");
@@ -586,6 +684,89 @@ export const PlanningScreen = () => {
         
         setQuickDesc(''); setQuickVal(''); 
     }
+
+    const parsePayslip = async (file: File): Promise<number | null> => {
+        setIsPayslipProcessing(true);
+        try {
+            const pdfjs = await import('pdfjs-dist');
+            // @ts-ignore
+            pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+            const doc = await pdfjs.getDocument(await file.arrayBuffer()).promise;
+            let text = '';
+            for (let i = 1; i <= doc.numPages; i++) {
+                const p = await doc.getPage(i);
+                const c = await p.getTextContent();
+                // @ts-ignore
+                text += c.items.map((it: any) => it.str).join(' ');
+            }
+
+            const keywords = ['LÍQUIDO A RECEBER', 'VALOR LÍQUIDO', 'TOTAL LÍQUIDO', 'LIQUIDO DE'];
+            const moneyRegex = /R\$\s*([\d.,]+)/;
+            
+            for (const keyword of keywords) {
+                const keywordIndex = text.toUpperCase().indexOf(keyword);
+                if (keywordIndex > -1) {
+                    const substring = text.substring(keywordIndex + keyword.length);
+                    const match = substring.match(moneyRegex);
+                    if (match && match[1]) {
+                        return parseMoney(match[1]);
+                    }
+                }
+            }
+             // Fallback search for any large amount if keywords fail
+            const allValues = text.match(/[\\d.,]{4,}/g)?.map(v => parseMoney(v)).filter(v => v > 100);
+            if(allValues && allValues.length > 0) return Math.max(...allValues);
+
+        } catch (e) {
+            toast.error("Erro ao ler o arquivo PDF do holerite.");
+            return null;
+        } finally {
+            setIsPayslipProcessing(false);
+        }
+        return null;
+    };
+
+    const processPayslip = async (type: 'Salário' | 'Adiantamento') => {
+        if (!payslipFile) return;
+        setShowPayslipModal(false);
+        const newAmount = await parsePayslip(payslipFile);
+        setPayslipFile(null);
+        
+        if (newAmount === null) {
+            toast.error("Não foi possível encontrar o valor líquido no holerite.");
+            return;
+        }
+
+        const cycleId = type === 'Salário' ? 'salary' : 'advance';
+        const cycleData = cycleId === 'salary' ? currentMonthData.cycle1 : currentMonthData.cycle2;
+        const incomeToUpdate = cycleData.transactions.find(t => t.category === 'Salário');
+
+        if (incomeToUpdate) {
+            updateTransaction(incomeToUpdate.id, { ...incomeToUpdate, amount: newAmount });
+            toast.success(`${type} atualizado para ${formatCurrencyBRL(newAmount)}!`);
+        } else {
+            toast.warning(`Nenhuma renda da categoria "Salário" encontrada para este ciclo para ser atualizada.`);
+        }
+    };
+
+    const handlePayslipFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setPayslipFile(file);
+
+        if (state.settings.hasAdvance) {
+            setShowPayslipModal(true);
+        } else {
+            processPayslip('Salário');
+        }
+        e.target.value = ''; // Reset file input
+    };
+
+    const handlePayslipImportClick = () => {
+        if (isPayslipProcessing) return;
+        payslipInputRef.current?.click();
+    };
 
     return (
         <div className="space-y-6 pb-24 relative">
@@ -616,6 +797,21 @@ export const PlanningScreen = () => {
 
             {/* Importer Modal */}
             {showImporter && <UniversalImporter onImport={(items) => { addBatchedTransactions(items); toast.success(`${items.length} itens importados!`); }} onClose={() => setShowImporter(false)} />}
+
+            {showPayslipModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in-50">
+                    <Card onClick={(e) => e.stopPropagation()} className="w-full max-w-sm bg-white shadow-2xl animate-in zoom-in-95">
+                         <CardHeader><CardTitle>Tipo de Holerite</CardTitle></CardHeader>
+                        <CardContent className="flex flex-col gap-2">
+                            <p className="text-sm text-slate-600 mb-2">Este holerite é referente ao seu adiantamento ou ao salário principal?</p>
+                            <Button onClick={() => processPayslip('Adiantamento')}>Adiantamento (Vale)</Button>
+                            <Button onClick={() => processPayslip('Salário')}>Salário Principal</Button>
+                            <Button variant="ghost" size="sm" onClick={() => setShowPayslipModal(false)} className="mt-2 text-slate-500">Cancelar</Button>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
 
             {/* Configurações Modal */}
             {showSettings && (
@@ -678,7 +874,7 @@ export const PlanningScreen = () => {
             )}
 
             {/* Edit Modal (Replaces inline modal) */}
-            <EditDebtModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} item={editingItem} type={editType} onSave={saveEdit} />
+            <EditDebtModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} item={editingItem} type={editType} onSave={saveEdit} onDeleteDebt={deleteDebt} onDeleteTransaction={deleteTransaction} />
 
             {/* TAB: MÊS ATUAL */}
             {activeTab === 'current' && (
@@ -686,13 +882,13 @@ export const PlanningScreen = () => {
                     <div className={`grid grid-cols-1 ${state.settings.hasAdvance ? 'md:grid-cols-2' : ''} gap-4`}>
                         <CycleSection
                             title={`Ciclo ${state.settings.salaryDay}`} stats={currentMonthStats.c1} items={currentMonthCycles[0]?.debts || []} incomes={currentMonthCycles[0]?.transactions || []}
-                            colorClass="bg-blue-50 border-blue-100" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories}
+                            colorClass="bg-blue-50 border-blue-100" cycleType="salary" hasAdvance={state.settings.hasAdvance} categories={state.categories}
                             onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
                             onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
                         />
                         {state.settings.hasAdvance && <CycleSection
                             title={`Ciclo ${state.settings.advanceDay}`} stats={currentMonthStats.c2} items={currentMonthCycles[1]?.debts || []} incomes={currentMonthCycles[1]?.transactions || []}
-                            colorClass="bg-emerald-50 border-emerald-100" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories}
+                            colorClass="bg-emerald-50 border-emerald-100" cycleType="advance" hasAdvance={state.settings.hasAdvance} categories={state.categories}
                             onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle}
                             onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
                         />}
@@ -701,10 +897,17 @@ export const PlanningScreen = () => {
                     <Card className="border-t-4 border-t-slate-800 shadow-sm">
                         <CardHeader className="pb-2"><CardTitle className="text-base uppercase tracking-wide text-slate-600">Novo Lançamento</CardTitle></CardHeader>
                         <CardContent className="space-y-6">
-                            {/* BOTÃO DE IMPORTAÇÃO ESTRATÉGICO */}
-                            <div className="flex justify-center -mt-2 mb-2">
+                            <div className="flex flex-wrap justify-center gap-2 mb-2">
+                                {/* BOTÃO DE IMPORTAÇÃO MASSIVA */}
                                 <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50 w-full md:w-auto" onClick={() => setShowImporter(true)}>
                                     <Upload className="h-4 w-4 mr-2"/> Importação Massiva
+                                </Button>
+
+                                {/* BOTÃO DE IMPORTAR HOLERITE */}
+                                <input type="file" ref={payslipInputRef} onChange={handlePayslipFileSelected} className="hidden" accept=".pdf" />
+                                <Button variant="outline" size="sm" onClick={handlePayslipImportClick} disabled={isPayslipProcessing} className="w-full md:w-auto">
+                                    {isPayslipProcessing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2"/>}
+                                    Importar Holerite
                                 </Button>
                             </div>
 
@@ -714,7 +917,7 @@ export const PlanningScreen = () => {
                                     <div className="w-full md:w-40"><Label className="text-xs text-green-800 font-bold mb-1 block">VALOR</Label><Input type="text" inputMode="decimal" placeholder="0,00" value={incomeAmount} onChange={handleAmountChange(setIncomeAmount)} className="bg-white border-green-200 text-green-700 font-bold" /></div>
                                     <Button className="w-full md:w-auto bg-green-600 hover:bg-green-700" onClick={addInc}><Plus className="h-4 w-4" /></Button>
                                 </div>
-                                <div className="mt-2 flex items-center gap-4"><label className="flex items-center gap-2 text-xs font-medium text-green-800"><input type="checkbox" checked={isIncomeFixed} onChange={e => setIsIncomeFixed(e.target.checked)} className="accent-green-600" /> Fixa?</label>{state.settings.hasAdvance && <select className="text-xs bg-transparent" value={incomeCycle} onChange={(e: any) => setIncomeCycle(e.target.value)}><option value="day_05">Dia {state.settings.salaryDay}</option><option value="day_20">Dia {state.settings.advanceDay}</option></select>}</div>
+                                <div className="mt-2 flex items-center gap-4"><label className="flex items-center gap-2 text-xs font-medium text-green-800"><input type="checkbox" checked={isIncomeFixed} onChange={e => setIsIncomeFixed(e.target.checked)} className="accent-green-600" /> Fixa?</label>{state.settings.hasAdvance && <select className="text-xs bg-transparent" value={incomeCycle} onChange={(e: any) => setIncomeCycle(e.target.value)}><option value="salary">Dia {state.settings.salaryDay}</option><option value="advance">Dia {state.settings.advanceDay}</option></select>}</div>
                             </div>
 
                             <div className="p-4 bg-red-50 rounded-lg border border-red-100 transition-all hover:shadow-sm">
@@ -730,7 +933,7 @@ export const PlanningScreen = () => {
                                     <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer"><input type="checkbox" checked={isInstallment} onChange={e => { setIsInstallment(e.target.checked); setIsFixed(false) }} className="w-4 h-4 accent-red-600" /> Parcelada?</label>
                                     <div className="w-px h-4 bg-slate-200"></div>
                                     <select className="text-xs border-none bg-transparent font-medium text-slate-600 focus:ring-0 cursor-pointer" value={debtMethod} onChange={e => setDebtMethod(e.target.value)}><option value="">Forma Pagto</option><option value="Cartão">Cartão</option><option value="Pix">Pix</option><option value="Boleto">Boleto</option></select>
-                                    {state.settings.hasAdvance && (<><div className="w-px h-4 bg-slate-200"></div><select className="text-xs border-none bg-transparent font-medium text-slate-600 focus:ring-0 cursor-pointer" value={debtCycle} onChange={(e: any) => setDebtCycle(e.target.value)}><option value="day_05">Pagar dia {state.settings.salaryDay}</option><option value="day_20">Pagar dia {state.settings.advanceDay}</option></select></>)}
+                                    {state.settings.hasAdvance && (<><div className="w-px h-4 bg-slate-200"></div><select className="text-xs border-none bg-transparent font-medium text-slate-600 focus:ring-0 cursor-pointer" value={debtCycle} onChange={(e: any) => setDebtCycle(e.target.value)}><option value="salary">Pagar dia {state.settings.salaryDay}</option><option value="advance">Pagar dia {state.settings.advanceDay}</option></select></>)}
                                 </div>
                                 {isInstallment && <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 animate-in slide-in-from-top-2"><div><Label className="text-[10px] text-red-400 font-bold">QTD PARC.</Label><Input type="number" placeholder="10" value={instCount} onChange={e => setInstCount(e.target.value)} className="h-8 text-xs" /></div><div><Label className="text-[10px] text-red-400 font-bold">VALOR PARC.</Label><Input type="text" inputMode="decimal" placeholder="0,00" value={instVal} onChange={handleAmountChange(setInstVal)} className="h-8 text-xs" /></div><div><Label className="text-[10px] text-red-400 font-bold">1ª FATURA</Label><select className="h-8 w-full text-xs border rounded bg-white px-1" value={billingMonth} onChange={e => setBillingMonth(e.target.value)}>{MONTHS_FULL.map(m => <option key={m} value={m}>{m}</option>)}</select></div></div>}
                                 <Button className="w-full bg-red-600 hover:bg-red-700 mt-2" onClick={addExp}><Minus className="h-4 w-4 mr-2" /> Lançar Saída</Button>
@@ -833,13 +1036,13 @@ export const PlanningScreen = () => {
                                         <div className={`grid grid-cols-1 ${state.settings.hasAdvance ? 'md:grid-cols-2' : ''} gap-6`}>
                                             <CycleSection 
                                                 title={`Ciclo ${state.settings.salaryDay}`} stats={m.cycle1} items={m.cycle1.items} incomes={m.cycle1.incomes} 
-                                                colorClass="bg-blue-50/50" cycleType="day_05" hasAdvance={state.settings.hasAdvance} categories={state.categories} 
+                                                colorClass="bg-blue-50/50" cycleType="salary" hasAdvance={state.settings.hasAdvance} categories={state.categories} 
                                                 onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle} 
                                                 isProjection onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
                                             />
                                             {state.settings.hasAdvance && <CycleSection 
                                                 title={`Ciclo ${state.settings.advanceDay}`} stats={m.cycle2} items={m.cycle2.items} incomes={m.cycle2.incomes} 
-                                                colorClass="bg-emerald-50/50" cycleType="day_20" hasAdvance={state.settings.hasAdvance} categories={state.categories} 
+                                                colorClass="bg-emerald-50/50" cycleType="advance" hasAdvance={state.settings.hasAdvance} categories={state.categories} 
                                                 onEditDebt={openEditDebt} onEditInc={openEditInc} onDeleteDebt={deleteDebt} onDeleteInc={deleteTransaction} onMove={switchCycle} 
                                                 isProjection onToggleDebt={toggleDebtStatus} onToggleInc={toggleTransactionStatus}
                                             />}
@@ -854,7 +1057,7 @@ export const PlanningScreen = () => {
                                                 <div className="flex gap-2 flex-1">
                                                     <Input placeholder={quickType === 'expense' ? "Nova Conta" : "Nova Renda"} value={quickDesc} onChange={e => setQuickDesc(e.target.value)} className="h-9 text-xs bg-white flex-1" />
                                                     <Input type="text" inputMode="decimal" placeholder="0,00" value={quickVal} onChange={handleAmountChange(setQuickVal)} className="h-9 text-xs bg-white w-24 font-bold" />
-                                                    {state.settings.hasAdvance && <select className="h-9 text-xs border rounded px-1 bg-white" value={quickCycle} onChange={(e: any) => setQuickCycle(e.target.value)}><option value="day_05">Dia {state.settings.salaryDay}</option><option value="day_20">Dia {state.settings.advanceDay}</option></select>}
+                                                    {state.settings.hasAdvance && <select className="h-9 text-xs border rounded px-1 bg-white" value={quickCycle} onChange={(e: any) => setQuickCycle(e.target.value)}><option value="salary">Dia {state.settings.salaryDay}</option><option value="advance">Dia {state.settings.advanceDay}</option></select>}
                                                     <Button size="sm" className={`h-9 ${quickType === 'expense' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`} onClick={() => quickAddProj(idx, m.date)}>
                                                         {quickType === 'expense' ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                                                     </Button>

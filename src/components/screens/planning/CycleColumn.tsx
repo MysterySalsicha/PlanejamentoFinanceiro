@@ -14,7 +14,7 @@ import { useFinancials } from '../../../context/FinancialContext';
 interface CycleColumnProps {
     cycle: {
         id: string;
-        type: 'day_05' | 'day_20';
+        type: 'salary' | 'advance';
         transactions: Transaction[];
         debts: Debt[];
     };

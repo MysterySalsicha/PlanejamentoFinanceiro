@@ -20,7 +20,7 @@ export const detectBank = (text: string): BankType => {
     return 'Genérico';
 };
 
-const createTransaction = (date: string, description: string, sender: string, amount: number, type: 'income' | 'expense', categoryMappings?: Record<string, string>): ImportedTransaction => {
+export const createTransaction = (date: string, description: string, sender: string, amount: number, type: 'income' | 'expense', categoryMappings?: Record<string, string>): ImportedTransaction => {
     let category = '';
     const cleanSender = sender.replace(/[\d.\-\/]{9,}/g, '')
                               .replace(/(\d{2}\/\d{2})/g, '')
@@ -52,7 +52,7 @@ const createTransaction = (date: string, description: string, sender: string, am
         amount,
         type,
         category: category || 'Outros',
-        cycle: 'day_05', // Default cycle, can be changed later
+        cycle: 'salary', // Default cycle, can be changed later
         needsReview: true,
     };
 };

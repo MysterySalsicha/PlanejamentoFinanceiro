@@ -8,7 +8,8 @@ export interface Transaction {
     category: string;
     date: string;
     isFixed?: boolean;
-    cycle: 'day_05' | 'day_20';
+    cycle: 'salary' | 'advance';
+    preferredCycle?: 'salary' | 'advance';
     isPaid?: boolean;
     needsReview?: boolean;
 }
@@ -28,7 +29,8 @@ export interface Debt {
     isFixed?: boolean;
     billingMonth?: string;
     category?: string;
-    cycle: 'day_05' | 'day_20';
+    cycle: 'salary' | 'advance';
+    preferredCycle?: 'salary' | 'advance';
     paymentMethod?: string;
     isPaid?: boolean;
     needsReview?: boolean;
@@ -44,7 +46,7 @@ export interface Category {
 export interface FinancialCycle {
     id: string;
     month: string; // Format: YYYY-MM
-    type: 'day_05' | 'day_20';
+    type: 'salary' | 'advance';
     transactions: Transaction[];
     debts: Debt[];
 }
@@ -72,7 +74,7 @@ export interface ImportedTransaction {
     date: string;
     category: string;
     type: 'income' | 'expense';
-    cycle: 'day_05' | 'day_20';
+    cycle: 'salary' | 'advance';
     installments?: { current: number, total: number };
     isDuplicate?: boolean;
     needsReview?: boolean;

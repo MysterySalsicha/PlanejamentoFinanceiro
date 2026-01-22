@@ -280,8 +280,8 @@ export const UniversalImporter: React.FC<UniversalImporterProps> = ({ onImport, 
                                                                         onChange={(e) => handlePreviewChange(index, 'cycle', e.target.value)}
                                                                         className="w-32 bg-transparent border border-transparent hover:border-slate-200 focus:bg-white focus:border-blue-500 rounded px-1 py-1.5 text-sm text-slate-600"
                                                                     >
-                                                                        <option value="day_05">Ciclo Dia 05</option>
-                                                                        <option value="day_20">Ciclo Dia 20</option>
+                                                                        <option value="salary">Ciclo Salário</option>
+                                                                        <option value="advance">Ciclo Adiantamento</option>
                                                                     </select>
                                                                 </td>
                                                                 {importSource === 'file' && <td className="py-2 px-2">

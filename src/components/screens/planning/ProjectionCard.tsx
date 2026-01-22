@@ -19,7 +19,7 @@ const QuickAddForm = ({ month, year }: { month: string, year: number }) => {
     const [name, setName] = useState('');
     const [amount, setAmount] = useState('');
     const [day, setDay] = useState('');
-    const [cycle, setCycle] = useState<'day_05' | 'day_20'>('day_05');
+    const [cycle, setCycle] = useState<'salary' | 'advance'>('salary');
 
     const handleQuickAdd = () => {
         const numAmount = parseFloat(amount);
@@ -59,8 +59,8 @@ const QuickAddForm = ({ month, year }: { month: string, year: number }) => {
                 <Input type="number" placeholder="Valor" value={amount} onChange={e => setAmount(e.target.value)} className="w-28"/>
                 <Input type="number" placeholder="Dia" value={day} onChange={e => setDay(e.target.value)} className="w-20"/>
                  <select value={cycle} onChange={e => setCycle(e.target.value as any)} className="w-28 p-2 border rounded-md text-xs">
-                    <option value="day_05">Ciclo Salário</option>
-                    <option value="day_20">Ciclo Vale</option>
+                    <option value="salary">Ciclo Salário</option>
+                    <option value="advance">Ciclo Vale</option>
                 </select>
                 <Button size="icon" onClick={handleQuickAdd}><PlusCircle className="h-4 w-4"/></Button>
             </div>

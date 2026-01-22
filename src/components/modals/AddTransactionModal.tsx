@@ -26,7 +26,7 @@ export const AddTransactionModal = ({ onClose }: AddTransactionModalProps) => {
     // Common fields
     const [name, setName] = useState('');
     const [amount, setAmount] = useState('');
-    const [cycle, setCycle] = useState<'day_05' | 'day_20'>('day_05');
+    const [cycle, setCycle] = useState<'salary' | 'advance'>('salary');
     const [category, setCategory] = useState('');
 
     // Debt specific fields
@@ -73,7 +73,7 @@ export const AddTransactionModal = ({ onClose }: AddTransactionModalProps) => {
         const todayStr = today.toLocaleDateString('pt-BR');
 
         if (formType === 'income') {
-            addTransaction({ description: name, amount: numAmount, type: 'income', category: category || 'Salário', date: todayStr, isFixed: debtType === 'fixed', cycle });
+            addTransaction({ description: name, amount: numAmount, type: 'income', category: category || 'Salário', date: todayStr, isFixed: debtType === 'fixed', cycle, preferredCycle: cycle });
             toast.success(`Renda "${name}" adicionada!`);
         } else {
             const dueDay = parseInt(dueDate);
@@ -92,6 +92,7 @@ export const AddTransactionModal = ({ onClose }: AddTransactionModalProps) => {
                 isFixed: debtType === 'fixed',
                 category,
                 cycle,
+                preferredCycle: cycle,
                 paymentMethod: 'Outros', // Default
             });
             toast.success(`Dívida "${name}" adicionada!`);
@@ -154,8 +155,8 @@ export const AddTransactionModal = ({ onClose }: AddTransactionModalProps) => {
                                 <div>
                                     <Label>Pagar com</Label>
                                     <select value={cycle} onChange={e => setCycle(e.target.value as any)} className="w-full p-2 border rounded-md">
-                                        <option value="day_05">Ciclo Salário (Dia {state.settings.salaryDay})</option>
-                                        <option value="day_20">Ciclo Vale (Dia {state.settings.advanceDay})</option>
+                                        <option value="salary">Ciclo Salário (Dia {state.settings.salaryDay})</option>
+                                        <option value="advance">Ciclo Vale (Dia {state.settings.advanceDay})</option>
                                     </select>
                                 </div>
                             )}
