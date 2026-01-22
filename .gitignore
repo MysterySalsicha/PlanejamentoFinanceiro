@@ -46,3 +46,8 @@ next-env.d.ts
 /pwa/elements
 /dist
 /www
+
+# Custom Ignore Rules
+*.pdf
+*.xlsx
+*.apk
